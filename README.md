@@ -1,4 +1,4 @@
-# Relay Inspect
+# Relay Inspect MCP
 
 An MCP server that gives Claude Code real-time visibility into your browser — console logs, network requests, DOM elements, and JavaScript evaluation — via Chrome DevTools Protocol.
 
