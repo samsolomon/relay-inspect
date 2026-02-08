@@ -5,7 +5,9 @@ Stop pasting console logs and screenshots into your CLI. Relay Inspect gives Cla
 It connects to Chrome DevTools Protocol and exposes browser state as MCP tools: console output, network requests, DOM queries, screenshots, and JavaScript evaluation. Claude edits your code, the dev server reloads, and Claude checks the result itself.
 
 ```
-Claude Code  ←→  Relay Inspect (MCP over stdio)  ←→  Chrome (CDP over WebSocket)
+                                                 ┌─ Chrome (CDP over WebSocket)
+Claude Code  ←→  Relay Inspect (MCP over stdio) ─┤
+                                                 └─ Dev Servers (child processes)
 ```
 
 ## Setup
