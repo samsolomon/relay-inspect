@@ -2,13 +2,41 @@
 
 Stop copying and pasting console logs, server errors and screenshots into your CLI. Relay Inspect gives your AI coding agent direct access to your browser—so it can see what you see, verify its own changes, and debug without asking you to copy-paste.
 
-It connects to Chrome DevTools Protocol and exposes browser state as MCP tools: console output, network requests, DOM queries, screenshots, and JavaScript evaluation. Your agent edits code, the dev server reloads, and the agent checks the result itself.
+Relay Inspect connects to Chrome DevTools Protocol and your dev server, exposing browser state as MCP tools—console output, network requests, DOM queries, screenshots, and JS evaluation. Your agent edits code, the dev server hot reloads, and the agent verifies the result itself.
 
 ```
                                                     ┌─ Chrome (CDP over WebSocket)
 AI Coding Agent  ←→  Relay Inspect (MCP over stdio) ─┤
                                                     └─ Dev Servers (child processes)
 ```
+## Tools
+
+### Browser Inspection
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `evaluate_js` | Execute a JavaScript expression in the browser and return the result | `expression` (string) |
+| `get_console_logs` | Return buffered console output (logs, warnings, errors) | `clear` (bool, default: true) |
+| `get_network_requests` | Return captured network requests and responses | `filter` (URL substring), `clear` (bool, default: true) |
+| `get_network_request_detail` | Get full request/response body for a specific network request | `requestId` (string, from `get_network_requests`) |
+| `get_elements` | Query the DOM with a CSS selector and return matching elements' outer HTML | `selector` (string), `limit` (number, default: 10) |
+| `take_screenshot` | Capture a screenshot of the current page | `format` (png/jpeg, default: png), `quality` (0-100, jpeg only) |
+
+### Page Control
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `reload_page` | Reload the current page (optionally bypass cache) | `ignoreCache` (bool, default: false) |
+| `wait_and_check` | Wait N seconds then return new console output captured during the wait | `seconds` (number, default: 2) |
+
+### Server Management
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `start_server` | Start a dev server or background process and capture its output | `id` (string), `command` (string), `args` (string[]), `cwd` (string), `env` (object) |
+| `get_server_logs` | Read stdout/stderr output from a managed server process | `id` (string), `clear` (bool, default: true) |
+| `stop_server` | Stop a running managed server process | `id` (string) |
+| `list_servers` | List all managed server processes and their status | — |
 
 ## Setup
 
@@ -40,7 +68,7 @@ google-chrome --remote-debugging-port=9222
 
 If Chrome is already running, you'll need to quit it first—the debugging port must be set at launch.
 
-### Register as an MCP server
+### Add to your MCP client
 
 **Claude Code** — add to `.mcp.json` or `.claude/settings.json`:
 
@@ -78,35 +106,6 @@ codex mcp add relay-inspect -- node /absolute/path/to/relay-inspect-mcp/dist/ind
 }
 ```
 
-## Tools
-
-### Browser Inspection
-
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `evaluate_js` | Execute a JavaScript expression in the browser and return the result | `expression` (string) |
-| `get_console_logs` | Return buffered console output (logs, warnings, errors) | `clear` (bool, default: true) |
-| `get_network_requests` | Return captured network requests and responses | `filter` (URL substring), `clear` (bool, default: true) |
-| `get_network_request_detail` | Get full request/response body for a specific network request | `requestId` (string, from `get_network_requests`) |
-| `get_elements` | Query the DOM with a CSS selector and return matching elements' outer HTML | `selector` (string), `limit` (number, default: 10) |
-| `take_screenshot` | Capture a screenshot of the current page | `format` (png/jpeg, default: png), `quality` (0-100, jpeg only) |
-
-### Page Control
-
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `reload_page` | Reload the current page (optionally bypass cache) | `ignoreCache` (bool, default: false) |
-| `wait_and_check` | Wait N seconds then return new console output captured during the wait | `seconds` (number, default: 2) |
-
-### Server Management
-
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `start_server` | Start a dev server or background process and capture its output | `id` (string), `command` (string), `args` (string[]), `cwd` (string), `env` (object) |
-| `get_server_logs` | Read stdout/stderr output from a managed server process | `id` (string), `clear` (bool, default: true) |
-| `stop_server` | Stop a running managed server process | `id` (string) |
-| `list_servers` | List all managed server processes and their status | — |
-
 ## Configuration
 
 | Environment Variable | Default | Description |
@@ -125,4 +124,4 @@ npm run build  # Build with tsup
 npm start      # Run the built bundle
 ```
 
-See [CLAUDE.md](./CLAUDE.md) for architecture details and full project conventions.
+For architecture details,see [CLAUDE.md](./CLAUDE.md).
