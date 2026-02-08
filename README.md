@@ -11,6 +11,8 @@ AI Coding Agent  ←→  Relay Inspect (MCP over stdio) ─┤
 ```
 ## Tools
 
+Your agent gets access to the following tools automatically via MCP—no configuration beyond the initial setup.
+
 ### Browser Inspection
 
 | Tool | Description | Key Parameters |
