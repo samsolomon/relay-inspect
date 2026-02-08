@@ -1,14 +1,14 @@
 # Relay Inspect
 
-An MCP server that bridges Claude Code and Chrome DevTools Protocol, giving Claude real-time visibility into console logs, network requests, DOM elements, and the ability to execute JavaScript in the browser.
+An MCP server that bridges AI coding agents and Chrome DevTools Protocol, giving agents real-time visibility into console logs, network requests, DOM elements, and the ability to execute JavaScript in the browser.
 
 ## Architecture
 
 ```
-Claude Code  ←→  Relay Inspect (MCP over stdio)  ←→  Chrome (CDP over WebSocket)
+AI Coding Agent  ←→  Relay Inspect (MCP over stdio)  ←→  Chrome (CDP over WebSocket)
 ```
 
-- MCP server built with `@modelcontextprotocol/sdk`, communicates with Claude Code over stdio
+- MCP server built with `@modelcontextprotocol/sdk`, communicates with the AI coding agent over stdio
 - Connects to Chrome via `chrome-remote-interface` on `localhost:9222`
 - Buffers console and network events continuously once connected
 - Stateless tools — each tool call returns current buffer contents or live queries
@@ -76,8 +76,8 @@ Console and network events should be buffered in memory with sensible limits:
 
 - **Console buffer:** Last 500 entries, each with timestamp, level (log/warn/error), and message
 - **Network buffer:** Last 200 requests, each with URL, method, status, timing, and truncated response body
-- Buffers should be drainable — `get_console_logs` clears the buffer by default so Claude sees only new entries
-- Include timestamps on everything so Claude can correlate events with code changes
+- Buffers should be drainable — `get_console_logs` clears the buffer by default so the agent sees only new entries
+- Include timestamps on everything so the agent can correlate events with code changes
 
 ## Connection Management
 
@@ -130,9 +130,9 @@ NETWORK_BUFFER_SIZE=200         # Max network requests to buffer (default: 200)
 - Run `evaluate_js` with `1 + 1` and verify it returns `2`
 - Test `wait_and_check` actually waits before returning results
 
-## Claude Code MCP Registration
+## MCP Client Registration
 
-Add to `.claude/settings.json` or the project's MCP config:
+**Claude Code** — add to `.mcp.json` or `.claude/settings.json`:
 
 ```json
 {
@@ -140,13 +140,35 @@ Add to `.claude/settings.json` or the project's MCP config:
     "relay-inspect": {
       "command": "node",
       "args": ["dist/index.js"],
-      "cwd": "/path/to/relay-inspect"
+      "cwd": "/absolute/path/to/relay-inspect-mcp"
     }
   }
 }
 ```
 
-Or during development with tsx:
+**Codex CLI:**
+
+```bash
+codex mcp add relay-inspect -- node /absolute/path/to/relay-inspect-mcp/dist/index.js
+```
+
+**opencode** — add to `opencode.json`:
+
+```json
+{
+  "mcp": {
+    "relay-inspect": {
+      "type": "local",
+      "command": "node",
+      "args": ["dist/index.js"],
+      "env": {},
+      "cwd": "/absolute/path/to/relay-inspect-mcp"
+    }
+  }
+}
+```
+
+During development with tsx:
 
 ```json
 {
@@ -154,7 +176,7 @@ Or during development with tsx:
     "relay-inspect": {
       "command": "npx",
       "args": ["tsx", "src/index.ts"],
-      "cwd": "/path/to/relay-inspect"
+      "cwd": "/absolute/path/to/relay-inspect-mcp"
     }
   }
 }
@@ -181,10 +203,10 @@ Or during development with tsx:
 
 The whole point of this tool is enabling a tight feedback loop:
 
-1. Claude Code edits source code
+1. The agent edits source code
 2. Dev server hot-reloads
-3. Claude Code calls `wait_and_check` to let the reload complete
-4. Claude Code reads console/network/DOM to verify the change
+3. The agent calls `wait_and_check` to let the reload complete
+4. The agent reads console/network/DOM to verify the change
 5. Repeat
 
 Keep this loop in mind — every design decision should make this cycle faster and more reliable.
