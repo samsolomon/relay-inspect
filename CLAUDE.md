@@ -58,11 +58,9 @@ relay-inspect/
 
 | Tool | Description |
 |------|-------------|
-| `get_network_request_detail` | Get full request/response body for a specific request by ID |
 | `get_computed_styles` | Get computed CSS for an element |
-| `take_screenshot` | Capture a screenshot of the current page |
 | `get_page_errors` | Return only errors and warnings from console |
-| `reload_page` | Force a page reload |
+| `watch_console` | Subscribe to console output matching a pattern and return matches (long-poll style) |
 
 ## CDP Domains to Enable
 

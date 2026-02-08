@@ -246,6 +246,158 @@ server.tool(
   },
 );
 
+// --- Tool: take_screenshot ---
+
+const MAX_BODY_SIZE = 10 * 1024; // 10KB truncation limit for network bodies
+
+server.tool(
+  "take_screenshot",
+  "Capture a screenshot of the current page",
+  {
+    format: z
+      .enum(["png", "jpeg"])
+      .optional()
+      .default("png")
+      .describe("Image format (default: png)"),
+    quality: z
+      .number()
+      .min(0)
+      .max(100)
+      .optional()
+      .describe("Compression quality 0-100 (jpeg only)"),
+  },
+  async ({ format, quality }) => {
+    if (!cdpClient.isConnected()) {
+      return { content: [{ type: "text", text: notConnectedError() }] };
+    }
+
+    const client = cdpClient.getClient()!;
+
+    try {
+      const params: { format: string; quality?: number } = { format };
+      if (format === "jpeg" && quality !== undefined) {
+        params.quality = quality;
+      }
+
+      const result = await client.Page.captureScreenshot(params);
+
+      return {
+        content: [{
+          type: "image",
+          data: result.data,
+          mimeType: format === "png" ? "image/png" : "image/jpeg",
+        }],
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+      };
+    }
+  },
+);
+
+// --- Tool: reload_page ---
+
+server.tool(
+  "reload_page",
+  "Reload the current page (optionally bypass cache)",
+  {
+    ignoreCache: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Bypass cache (hard refresh) when true (default: false)"),
+  },
+  async ({ ignoreCache }) => {
+    if (!cdpClient.isConnected()) {
+      return { content: [{ type: "text", text: notConnectedError() }] };
+    }
+
+    const client = cdpClient.getClient()!;
+
+    try {
+      await client.Page.reload({ ignoreCache });
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ success: true, ignoreCache }, null, 2),
+        }],
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+      };
+    }
+  },
+);
+
+// --- Tool: get_network_request_detail ---
+
+server.tool(
+  "get_network_request_detail",
+  "Get full request and response body for a specific network request by ID",
+  {
+    requestId: z.string().describe("Request ID from get_network_requests output"),
+  },
+  async ({ requestId }) => {
+    if (!cdpClient.isConnected()) {
+      return { content: [{ type: "text", text: notConnectedError() }] };
+    }
+
+    const client = cdpClient.getClient()!;
+
+    // Find the request summary from the buffer
+    const entries = cdpClient.networkRequests.peek();
+    const entry = entries.find((e) => e.id === requestId);
+
+    const detail: Record<string, unknown> = {
+      requestId,
+      summary: entry ?? null,
+    };
+
+    // Get response body
+    try {
+      const resp = await client.Network.getResponseBody({ requestId });
+      let body = resp.base64Encoded
+        ? Buffer.from(resp.body, "base64").toString("utf-8")
+        : resp.body;
+
+      if (body.length > MAX_BODY_SIZE) {
+        body = body.slice(0, MAX_BODY_SIZE);
+        detail.responseBodyTruncated = true;
+      }
+      detail.responseBody = body;
+    } catch {
+      detail.responseBody = null;
+      detail.responseBodyError = "Response body not available (may have been evicted from browser memory)";
+    }
+
+    // Get request POST data
+    try {
+      const req = await client.Network.getRequestPostData({ requestId });
+      let postData = req.postData;
+      if (postData.length > MAX_BODY_SIZE) {
+        postData = postData.slice(0, MAX_BODY_SIZE);
+        detail.requestBodyTruncated = true;
+      }
+      detail.requestBody = postData;
+    } catch {
+      // Not all requests have POST data — this is expected for GET requests
+      detail.requestBody = null;
+    }
+
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(detail, null, 2),
+      }],
+    };
+  },
+);
+
 // --- Tool: start_server ---
 
 server.tool(

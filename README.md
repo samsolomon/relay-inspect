@@ -63,6 +63,9 @@ Add to your Claude Code MCP config (`.claude/settings.json` or project `.mcp.jso
 | `get_network_requests` | Return captured network requests and responses | `filter` (URL substring), `clear` (bool, default: true) |
 | `get_elements` | Query the DOM with a CSS selector and return matching elements' outer HTML | `selector` (string), `limit` (number, default: 10) |
 | `wait_and_check` | Wait N seconds then return new console output captured during the wait | `seconds` (number, default: 2) |
+| `take_screenshot` | Capture a screenshot of the current page | `format` (png/jpeg, default: png), `quality` (0-100, jpeg only) |
+| `reload_page` | Reload the current page (optionally bypass cache) | `ignoreCache` (bool, default: false) |
+| `get_network_request_detail` | Get full request/response body for a specific network request | `requestId` (string, from `get_network_requests`) |
 | `start_server` | Start a dev server or background process and capture its output | `id` (string), `command` (string), `args` (string[]), `cwd` (string), `env` (object) |
 | `get_server_logs` | Read stdout/stderr output from a managed server process | `id` (string), `clear` (bool, default: true) |
 | `stop_server` | Stop a running managed server process | `id` (string) |
