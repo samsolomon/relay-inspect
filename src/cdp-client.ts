@@ -1,4 +1,10 @@
 import CDP from "chrome-remote-interface";
+import { ChildProcess } from "node:child_process";
+import { readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import treeKill from "tree-kill";
+import { launchChrome, isAutoLaunchEnabled } from "./chrome-launcher.js";
 
 // --- Types ---
 
@@ -52,7 +58,7 @@ export class CircularBuffer<T> {
 
 // --- Config ---
 
-const config = {
+export const config = {
   host: process.env.CHROME_DEBUG_HOST ?? "localhost",
   port: parseInt(process.env.CHROME_DEBUG_PORT ?? "9222", 10),
   consoleBufferSize: parseInt(process.env.CONSOLE_BUFFER_SIZE ?? "500", 10),
@@ -69,11 +75,53 @@ interface PendingRequest {
   startTime: number;
 }
 
+// --- PID File ---
+
+function pidFilePath(): string {
+  return join(tmpdir(), `relay-inspect-chrome-${config.port}.pid`);
+}
+
+function writePidFile(pid: number): void {
+  try {
+    writeFileSync(pidFilePath(), String(pid), "utf-8");
+  } catch (err) {
+    console.error(`[relay-inspect] Failed to write PID file: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+function readPidFile(): number | null {
+  try {
+    const content = readFileSync(pidFilePath(), "utf-8").trim();
+    const pid = parseInt(content, 10);
+    return Number.isFinite(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function deletePidFile(): void {
+  try {
+    if (existsSync(pidFilePath())) {
+      unlinkSync(pidFilePath());
+    }
+  } catch { /* best-effort */ }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // --- CDP Client ---
 
 export class CDPClient {
   private client: CDP.Client | null = null;
   private connectingPromise: Promise<CDP.Client> | null = null;
+  private launchedProcess: ChildProcess | null = null;
 
   readonly consoleLogs: CircularBuffer<ConsoleEntry>;
   readonly networkRequests: CircularBuffer<NetworkEntry>;
@@ -130,6 +178,42 @@ export class CDPClient {
   }
 
   private async connect(): Promise<CDP.Client> {
+    // Clean up any orphaned Chrome from a previous MCP that was killed
+    this.cleanupOrphanedChrome();
+
+    // Fast path: try connecting to an already-running Chrome
+    try {
+      return await this.connectToExistingChrome();
+    } catch (firstErr) {
+      // Chrome not reachable — try auto-launch if enabled
+      if (!isAutoLaunchEnabled()) {
+        throw firstErr;
+      }
+
+      console.error("[relay-inspect] Chrome not reachable, attempting auto-launch...");
+
+      // If we previously launched a Chrome, check if it's still alive
+      if (this.launchedProcess?.pid) {
+        if (isProcessAlive(this.launchedProcess.pid)) {
+          // Alive but CDP failed — stuck process, kill it
+          console.error(`[relay-inspect] Previously launched Chrome (PID ${this.launchedProcess.pid}) is stuck, killing...`);
+          await this.killProcess(this.launchedProcess.pid);
+        }
+        this.launchedProcess = null;
+      }
+
+      // Launch Chrome
+      this.launchedProcess = await launchChrome(config.port, config.host);
+      if (this.launchedProcess.pid) {
+        writePidFile(this.launchedProcess.pid);
+      }
+
+      // Now connect to the freshly launched Chrome
+      return await this.connectToExistingChrome();
+    }
+  }
+
+  private async connectToExistingChrome(): Promise<CDP.Client> {
     const maxRetries = 3;
     let delay = 500;
 
@@ -186,6 +270,54 @@ export class CDPClient {
       `Could not connect to Chrome at ${config.host}:${config.port} after ${maxRetries} attempts. ` +
       `Ensure Chrome is running with --remote-debugging-port=${config.port}.`
     );
+  }
+
+  private cleanupOrphanedChrome(): void {
+    const pid = readPidFile();
+    if (pid === null) return;
+
+    // Don't kill our own launched process — that's handled separately
+    if (this.launchedProcess?.pid === pid) return;
+
+    if (isProcessAlive(pid)) {
+      console.error(`[relay-inspect] Found orphaned Chrome process (PID ${pid}) from a previous session, killing...`);
+      try {
+        treeKill(pid, "SIGTERM");
+      } catch (err) {
+        console.error(`[relay-inspect] Failed to kill orphaned Chrome: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    deletePidFile();
+  }
+
+  private killProcess(pid: number): Promise<void> {
+    return new Promise((resolve) => {
+      treeKill(pid, "SIGTERM", (err) => {
+        if (err) {
+          console.error(`[relay-inspect] Error killing process ${pid}: ${err.message}`);
+        }
+        resolve();
+      });
+    });
+  }
+
+  async shutdown(): Promise<void> {
+    this.cleanup();
+
+    if (this.launchedProcess?.pid) {
+      const pid = this.launchedProcess.pid;
+      console.error(`[relay-inspect] Shutting down auto-launched Chrome (PID ${pid})...`);
+      await this.killProcess(pid);
+      this.launchedProcess = null;
+    }
+
+    deletePidFile();
+  }
+
+  /** Synchronous last-resort cleanup for process 'exit' handler */
+  shutdownSync(): void {
+    deletePidFile();
   }
 
   private async enableDomains(client: CDP.Client): Promise<void> {

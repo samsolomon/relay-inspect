@@ -50,6 +50,7 @@ relay-inspect/
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
+| `check_connection` | Check Chrome connection status and diagnose issues (no auto-launch) | _(none)_ |
 | `get_console_logs` | Return buffered console output since last call | `clear?: boolean` (default true — clears buffer after reading) |
 | `get_network_requests` | Return captured network requests and responses | `filter?: string` (URL substring filter), `clear?: boolean` |
 | `get_elements` | Query DOM and return matching HTML | `selector: string`, `limit?: number` |
@@ -84,6 +85,8 @@ Console and network events should be buffered in memory with sensible limits:
 ## Connection Management
 
 - **Lazy connect** — Don't connect at startup. On each tool call, `ensureConnected()` checks for an active connection and connects if needed
+- **Auto-launch** — If Chrome is not reachable on first tool call and `CHROME_AUTO_LAUNCH` is enabled (default: true), the server will automatically find and launch Chrome with `--remote-debugging-port`. Set `CHROME_PATH` to override Chrome discovery. The auto-launched Chrome is killed on MCP shutdown
+- **Orphan cleanup** — On connect, checks for a PID file from a previous MCP session and kills any orphaned Chrome before launching a fresh one
 - **Liveness check** — Before reusing an existing connection, verify it's alive with a lightweight `Browser.getVersion()` call. If stale, reconnect
 - **Fresh discovery** — Always discover Chrome targets via HTTP (`CDP.List()` hitting `http://host:port/json/list`), never cache WebSocket URLs. This handles Chrome restarts transparently
 - **Retry with backoff** — Connection attempts retry 3 times with 500ms initial delay, doubling each attempt
@@ -105,6 +108,8 @@ Support these environment variables:
 ```
 CHROME_DEBUG_PORT=9222          # Chrome debugging port (default: 9222)
 CHROME_DEBUG_HOST=localhost     # Chrome debugging host (default: localhost)
+CHROME_AUTO_LAUNCH=true         # Auto-launch Chrome if not running (default: true)
+CHROME_PATH=/path/to/chrome     # Override Chrome executable path (default: auto-detect)
 CONSOLE_BUFFER_SIZE=500         # Max console entries to buffer (default: 500)
 NETWORK_BUFFER_SIZE=200         # Max network requests to buffer (default: 200)
 ```

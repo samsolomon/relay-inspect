@@ -2,7 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import CDP from "chrome-remote-interface";
-import { cdpClient } from "./cdp-client.js";
+import { cdpClient, config } from "./cdp-client.js";
+import { isAutoLaunchEnabled, findChromePath } from "./chrome-launcher.js";
 import { serverManager } from "./server-manager.js";
 
 const server = new McpServer({
@@ -14,16 +15,78 @@ const server = new McpServer({
 
 function connectionError(err: unknown): { content: [{ type: "text"; text: string }] } {
   const message = err instanceof Error ? err.message : String(err);
+  const autoLaunch = isAutoLaunchEnabled();
   return {
     content: [{
       type: "text",
       text: JSON.stringify({
         error: `Chrome connection failed: ${message}`,
-        hint: "Ensure Chrome is running with --remote-debugging-port=9222",
+        hint: autoLaunch
+          ? "Auto-launch is enabled but Chrome could not be started. Set CHROME_PATH to your Chrome executable, or launch Chrome manually with --remote-debugging-port=9222."
+          : "Auto-launch is disabled (CHROME_AUTO_LAUNCH=false). Launch Chrome with --remote-debugging-port=9222, or enable auto-launch.",
       }, null, 2),
     }],
   };
 }
+
+// --- Tool: check_connection ---
+
+server.tool(
+  "check_connection",
+  "Check Chrome DevTools connection status and diagnose issues (does not auto-launch Chrome)",
+  {},
+  async () => {
+    const result: Record<string, unknown> = {
+      config: {
+        host: config.host,
+        port: config.port,
+        auto_launch_enabled: isAutoLaunchEnabled(),
+        chrome_path: findChromePath(),
+      },
+    };
+
+    // Step 1: Check if Chrome is reachable via CDP
+    try {
+      const version = await CDP.Version({ host: config.host, port: config.port });
+      result.chrome_reachable = true;
+      result.chrome_version = version["Browser"] ?? null;
+      result.user_agent = version["User-Agent"] ?? null;
+    } catch {
+      result.chrome_reachable = false;
+      result.chrome_version = null;
+      result.status = "Chrome is not reachable";
+      result.hint = isAutoLaunchEnabled()
+        ? "Chrome will be auto-launched on the next tool call, or launch it manually with: chrome --remote-debugging-port=" + config.port
+        : "Launch Chrome with: chrome --remote-debugging-port=" + config.port;
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+
+    // Step 2: Enumerate targets
+    try {
+      const targets = await CDP.List({ host: config.host, port: config.port });
+      const pages = targets.filter((t: { type: string }) => t.type === "page");
+      result.page_count = pages.length;
+      result.pages = pages.map((t: { url: string; title: string; id: string }) => ({
+        url: t.url,
+        title: t.title,
+        id: t.id,
+      }));
+
+      result.status = pages.length > 0
+        ? "Connected and ready"
+        : "Chrome is reachable but no page targets found — open a page in Chrome";
+    } catch (err) {
+      result.target_enumeration_error = err instanceof Error ? err.message : String(err);
+      result.status = "Chrome is reachable but target enumeration failed";
+    }
+
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
 
 // --- Tool: evaluate_js ---
 
@@ -496,10 +559,35 @@ server.tool(
   },
 );
 
+// --- Process Exit Handlers ---
+
+let shuttingDown = false;
+
+async function gracefulShutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.error(`[relay-inspect] Received ${signal}, shutting down...`);
+  await cdpClient.shutdown();
+  process.exit(0);
+}
+
+process.on("SIGINT", () => { void gracefulShutdown("SIGINT"); });
+process.on("SIGTERM", () => { void gracefulShutdown("SIGTERM"); });
+process.on("beforeExit", () => { void gracefulShutdown("beforeExit"); });
+
+// Last-resort sync cleanup — async operations are not possible in 'exit'
+process.on("exit", () => {
+  cdpClient.shutdownSync();
+});
+
 // --- Start ---
 
 async function main(): Promise<void> {
   console.error("[relay-inspect] Starting MCP server...");
+
+  if (isAutoLaunchEnabled()) {
+    console.error("[relay-inspect] Chrome auto-launch is enabled. Chrome will be launched on first tool call if needed.");
+  }
 
   // No eager Chrome connection — ensureConnected() handles it lazily on first tool call
 
