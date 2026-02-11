@@ -44,6 +44,12 @@ Your agent gets access to the following tools automatically via MCP:
 | `stop_server` | Stop a running managed server process | `id` (string) |
 | `list_servers` | List all managed server processes and their status | — |
 
+### Diagnostics
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `check_connection` | Check Chrome connection status and diagnose issues (does not auto-launch) | — |
+
 ## Setup
 
 ### Prerequisites
@@ -59,20 +65,6 @@ cd relay-inspect-mcp
 npm install
 npm run build
 ```
-
-### Launch Chrome with remote debugging
-
-**macOS:**
-```bash
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
-```
-
-**Linux:**
-```bash
-google-chrome --remote-debugging-port=9222
-```
-
-If Chrome is already running, you'll need to quit it first—the debugging port must be set at launch.
 
 ### Add to your MCP client
 
@@ -112,15 +104,21 @@ codex mcp add relay-inspect -- node /absolute/path/to/relay-inspect-mcp/dist/ind
 }
 ```
 
+Chrome is auto-launched on first tool call if it isn't already running. To disable this or customize behavior, see Configuration below.
+
 ## Configuration
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `CHROME_DEBUG_PORT` | `9222` | Chrome debugging port |
 | `CHROME_DEBUG_HOST` | `localhost` | Chrome debugging host |
+| `CHROME_AUTO_LAUNCH` | `true` | Auto-launch Chrome if not already running |
+| `CHROME_PATH` | _(auto-detect)_ | Override Chrome/Chromium executable path |
 | `CONSOLE_BUFFER_SIZE` | `500` | Max console entries to buffer |
 | `NETWORK_BUFFER_SIZE` | `200` | Max network requests to buffer |
 | `SERVER_LOG_BUFFER_SIZE` | `1000` | Max log entries per managed server |
+
+If Chrome is already running with `--remote-debugging-port`, Relay Inspect will connect to it directly without launching a new instance.
 
 ## Development
 
@@ -130,4 +128,4 @@ npm run build  # Build with tsup
 npm start      # Run the built bundle
 ```
 
-For architecture details,see [CLAUDE.md](./CLAUDE.md).
+For architecture details, see [CLAUDE.md](./CLAUDE.md).

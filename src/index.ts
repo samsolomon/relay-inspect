@@ -22,8 +22,8 @@ function connectionError(err: unknown): { content: [{ type: "text"; text: string
       text: JSON.stringify({
         error: `Chrome connection failed: ${message}`,
         hint: autoLaunch
-          ? "Auto-launch is enabled but Chrome could not be started. Set CHROME_PATH to your Chrome executable, or launch Chrome manually with --remote-debugging-port=9222."
-          : "Auto-launch is disabled (CHROME_AUTO_LAUNCH=false). Launch Chrome with --remote-debugging-port=9222, or enable auto-launch.",
+          ? `Auto-launch is enabled but Chrome could not be started. Set CHROME_PATH to your Chrome executable, or launch Chrome manually with --remote-debugging-port=${config.port}.`
+          : `Auto-launch is disabled (CHROME_AUTO_LAUNCH=false). Launch Chrome with --remote-debugging-port=${config.port}, or enable auto-launch.`,
       }, null, 2),
     }],
   };
@@ -567,7 +567,10 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   console.error(`[relay-inspect] Received ${signal}, shutting down...`);
-  await cdpClient.shutdown();
+  await Promise.all([
+    cdpClient.shutdown(),
+    serverManager.stopAll(),
+  ]);
   process.exit(0);
 }
 

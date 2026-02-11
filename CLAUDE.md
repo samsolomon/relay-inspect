@@ -26,38 +26,55 @@ AI Coding Agent  ←→  Relay Inspect (MCP over stdio) ─┤
 
 ## Project Structure
 
-Keep it minimal. Start with a single `src/index.ts` and only split when complexity demands it.
-
 ```
 relay-inspect/
 ├── src/
-│   ├── index.ts          # Entry point — MCP server setup and tool registration
-│   ├── cdp-client.ts     # Chrome connection, event buffering, reconnection logic
-│   └── tools/            # Split tools into separate files only if index.ts exceeds ~400 lines
-│       ├── console.ts
-│       ├── network.ts
-│       ├── dom.ts
-│       └── evaluate.ts
+│   ├── index.ts            # Entry point — MCP server setup, tool registration, exit handlers
+│   ├── cdp-client.ts       # Chrome connection, event buffering, reconnection, auto-launch integration
+│   ├── chrome-launcher.ts  # Chrome path discovery, auto-launch, CDP readiness polling
+│   └── server-manager.ts   # Dev server lifecycle management (start/stop/logs)
 ├── package.json
 ├── tsconfig.json
 ├── CLAUDE.md
 └── README.md
 ```
 
-## MCP Tools to Implement
+## MCP Tools
 
-### Core Tools
+### Browser Inspection
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `evaluate_js` | Execute a JS expression in the browser and return the result | `expression: string` |
+| `get_console_logs` | Return buffered console output since last call | `clear?: boolean` (default true) |
+| `get_network_requests` | Return captured network requests and responses | `filter?: string` (URL substring), `clear?: boolean` |
+| `get_network_request_detail` | Get full request/response body for a specific request | `requestId: string` |
+| `get_elements` | Query DOM and return matching HTML | `selector: string`, `limit?: number` (default 10) |
+| `take_screenshot` | Capture a screenshot of the current page | `format?: "png" \| "jpeg"` (default png), `quality?: number` (jpeg only) |
+
+### Page Control
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `reload_page` | Reload the current page (optionally bypass cache) | `ignoreCache?: boolean` (default false) |
+| `wait_and_check` | Wait N seconds then return new console output (for post-reload checks) | `seconds?: number` (default 2) |
+
+### Server Management
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `start_server` | Start a dev server or background process and capture its output | `id: string`, `command: string`, `args?: string[]`, `cwd?: string`, `env?: Record<string, string>` |
+| `get_server_logs` | Read stdout/stderr output from a managed server process | `id: string`, `clear?: boolean` (default true) |
+| `stop_server` | Stop a running managed server process | `id: string` |
+| `list_servers` | List all managed server processes and their status | _(none)_ |
+
+### Diagnostics
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `check_connection` | Check Chrome connection status and diagnose issues (no auto-launch) | _(none)_ |
-| `get_console_logs` | Return buffered console output since last call | `clear?: boolean` (default true — clears buffer after reading) |
-| `get_network_requests` | Return captured network requests and responses | `filter?: string` (URL substring filter), `clear?: boolean` |
-| `get_elements` | Query DOM and return matching HTML | `selector: string`, `limit?: number` |
-| `evaluate_js` | Execute a JS expression in the browser and return the result | `expression: string` |
-| `wait_and_check` | Wait N seconds then return new console output (for post-reload checks) | `seconds?: number` (default 2) |
 
-### Nice-to-Have Tools (add later)
+### Nice-to-Have Tools (not yet implemented)
 
 | Tool | Description |
 |------|-------------|
@@ -112,25 +129,27 @@ CHROME_AUTO_LAUNCH=true         # Auto-launch Chrome if not running (default: tr
 CHROME_PATH=/path/to/chrome     # Override Chrome executable path (default: auto-detect)
 CONSOLE_BUFFER_SIZE=500         # Max console entries to buffer (default: 500)
 NETWORK_BUFFER_SIZE=200         # Max network requests to buffer (default: 200)
+SERVER_LOG_BUFFER_SIZE=1000     # Max log entries per managed server (default: 1000)
 ```
 
 ## Testing
 
 ### Manual Testing
 
-1. Launch Chrome with remote debugging:
-   ```bash
-   google-chrome --remote-debugging-port=9222
-   # or on macOS:
-   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
-   ```
-
-2. Run the server directly to test:
+1. Run the server directly to test (Chrome will auto-launch if not already running):
    ```bash
    npx tsx src/index.ts
    ```
 
-3. Use MCP Inspector or send JSON-RPC messages over stdin to test tools
+2. Use MCP Inspector or send JSON-RPC messages over stdin to test tools
+
+3. To manually launch Chrome instead (e.g. with `CHROME_AUTO_LAUNCH=false`):
+   ```bash
+   # macOS:
+   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+   # Linux:
+   google-chrome --remote-debugging-port=9222
+   ```
 
 ### Integration Testing
 

@@ -138,6 +138,11 @@ export class ServerManager {
     });
   }
 
+  async stopAll(): Promise<void> {
+    const running = Array.from(this.servers.values()).filter((s) => s.running);
+    await Promise.all(running.map((s) => this.stop(s.id)));
+  }
+
   list(): Array<{ id: string; command: string; running: boolean; pid: number | undefined; startedAt: string; exitCode: number | null }> {
     return Array.from(this.servers.values()).map((s) => ({
       id: s.id,

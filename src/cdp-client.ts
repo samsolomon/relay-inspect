@@ -1,5 +1,5 @@
 import CDP from "chrome-remote-interface";
-import { ChildProcess } from "node:child_process";
+import { ChildProcess, execSync } from "node:child_process";
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -116,6 +116,16 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+function isProcessChrome(pid: number): boolean {
+  try {
+    const cmd = execSync(`ps -p ${pid} -o comm=`, { encoding: "utf-8", timeout: 2000 }).trim().toLowerCase();
+    return cmd.includes("chrome") || cmd.includes("chromium");
+  } catch {
+    // If we can't determine the process name, don't kill it
+    return false;
+  }
+}
+
 // --- CDP Client ---
 
 export class CDPClient {
@@ -179,7 +189,7 @@ export class CDPClient {
 
   private async connect(): Promise<CDP.Client> {
     // Clean up any orphaned Chrome from a previous MCP that was killed
-    this.cleanupOrphanedChrome();
+    await this.cleanupOrphanedChrome();
 
     // Fast path: try connecting to an already-running Chrome
     try {
@@ -272,7 +282,7 @@ export class CDPClient {
     );
   }
 
-  private cleanupOrphanedChrome(): void {
+  private async cleanupOrphanedChrome(): Promise<void> {
     const pid = readPidFile();
     if (pid === null) return;
 
@@ -280,12 +290,15 @@ export class CDPClient {
     if (this.launchedProcess?.pid === pid) return;
 
     if (isProcessAlive(pid)) {
-      console.error(`[relay-inspect] Found orphaned Chrome process (PID ${pid}) from a previous session, killing...`);
-      try {
-        treeKill(pid, "SIGTERM");
-      } catch (err) {
-        console.error(`[relay-inspect] Failed to kill orphaned Chrome: ${err instanceof Error ? err.message : err}`);
+      // Verify the process is actually Chrome before killing — PIDs can be reused by the OS
+      if (!isProcessChrome(pid)) {
+        console.error(`[relay-inspect] PID ${pid} from previous session is no longer Chrome, skipping kill.`);
+        deletePidFile();
+        return;
       }
+
+      console.error(`[relay-inspect] Found orphaned Chrome process (PID ${pid}) from a previous session, killing...`);
+      await this.killProcess(pid);
     }
 
     deletePidFile();

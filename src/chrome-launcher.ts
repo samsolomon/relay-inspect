@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { tmpdir, platform } from "node:os";
 import { join } from "node:path";
 import CDP from "chrome-remote-interface";
+import treeKill from "tree-kill";
 
 // --- Chrome Path Discovery ---
 
@@ -61,13 +62,23 @@ export function isAutoLaunchEnabled(): boolean {
 
 // --- CDP Readiness Wait ---
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), ms),
+    ),
+  ]);
+}
+
 async function waitForCDP(host: string, port: number, timeoutMs = 15000): Promise<void> {
   const interval = 500;
+  const perCallTimeout = 3000;
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
     try {
-      await CDP.Version({ host, port });
+      await withTimeout(CDP.Version({ host, port }), perCallTimeout);
       return;
     } catch {
       await new Promise((resolve) => setTimeout(resolve, interval));
@@ -115,8 +126,8 @@ export async function launchChrome(port: number, host = "localhost"): Promise<Ch
   try {
     await waitForCDP(host, port);
   } catch (err) {
-    // CDP never became ready — kill the process we just spawned
-    try { process.kill(child.pid); } catch { /* already dead */ }
+    // CDP never became ready — kill the process tree we just spawned
+    try { treeKill(child.pid, "SIGTERM"); } catch { /* already dead */ }
     throw err;
   }
 
