@@ -58,12 +58,13 @@ relay-inspect/
 |------|-------------|------------|
 | `reload_page` | Reload the current page (optionally bypass cache) | `ignoreCache?: boolean` (default false) |
 | `wait_and_check` | Wait N seconds then return new console output (for post-reload checks) | `seconds?: number` (default 2) |
+| `connect_to_page` | Switch to a specific Chrome page target by ID or URL match | `id?: string`, `urlPattern?: string`, `waitForMs?: number` |
 
 ### Server Management
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `start_server` | Start a dev server or background process and capture its output | `id: string`, `command: string`, `args?: string[]`, `cwd?: string`, `env?: Record<string, string>` |
+| `start_server` | Start a dev server or background process and capture its output | `id: string`, `command: string`, `args?: string[]`, `cwd?: string`, `env?: Record<string, string>`, `urlPattern?: string`, `connectWaitForMs?: number` |
 | `get_server_logs` | Read stdout/stderr output from a managed server process | `id: string`, `clear?: boolean` (default true) |
 | `stop_server` | Stop a running managed server process | `id: string` |
 | `list_servers` | List all managed server processes and their status | _(none)_ |

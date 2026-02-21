@@ -24,6 +24,62 @@ export interface NetworkEntry {
   timestamp: string;
 }
 
+export interface PageTarget {
+  id: string;
+  title: string;
+  type: string;
+  url: string;
+}
+
+interface ConnectPageOptions {
+  id?: string;
+  urlPattern?: string;
+  waitForMs?: number;
+}
+
+const INTERNAL_TARGET_PREFIXES = ["devtools://", "chrome://", "chrome-extension://", "about:"];
+
+export function isInternalTargetUrl(url: string): boolean {
+  return INTERNAL_TARGET_PREFIXES.some((prefix) => url.startsWith(prefix));
+}
+
+function isHttpUrl(url: string): boolean {
+  return url.startsWith("http://") || url.startsWith("https://");
+}
+
+function isLocalhostHttpUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
+    return parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function normalizePageTargets(targets: Array<{ id: string; title?: string; type?: string; url?: string }>): PageTarget[] {
+  return targets
+    .filter((t) => t.type === "page" && typeof t.id === "string")
+    .map((t) => ({
+      id: t.id,
+      title: t.title ?? "",
+      type: t.type ?? "page",
+      url: t.url ?? "",
+    }));
+}
+
+export function chooseDefaultTarget(pageTargets: PageTarget[]): PageTarget | undefined {
+  if (pageTargets.length === 0) return undefined;
+
+  const nonInternalPages = pageTargets.filter((t) => !isInternalTargetUrl(t.url));
+  const httpPages = nonInternalPages.filter((t) => isHttpUrl(t.url));
+  const localhostPages = httpPages.filter((t) => isLocalhostHttpUrl(t.url));
+
+  return localhostPages[0] ?? httpPages[0] ?? nonInternalPages[0] ?? pageTargets[0];
+}
+
 // --- Circular Buffer ---
 
 export class CircularBuffer<T> {
@@ -132,6 +188,8 @@ export class CDPClient {
   private client: CDP.Client | null = null;
   private connectingPromise: Promise<CDP.Client> | null = null;
   private launchedProcess: ChildProcess | null = null;
+  private preferredTargetId: string | null = null;
+  private preferredUrlPattern: string | null = null;
 
   readonly consoleLogs: CircularBuffer<ConsoleEntry>;
   readonly networkRequests: CircularBuffer<NetworkEntry>;
@@ -252,20 +310,8 @@ export class CDPClient {
       try {
         console.error(`[relay-inspect] Connecting to Chrome at ${config.host}:${config.port} (attempt ${attempt}/${maxRetries})...`);
 
-        // Discover targets via HTTP (fresh every time — never cached)
-        const targets = await CDP.List({ host: config.host, port: config.port });
-        const pageTargets = targets.filter((t: { type: string }) => t.type === "page");
-        const skipPrefixes = ["devtools://", "chrome://", "chrome-extension://"];
-        const webPages = pageTargets.filter(
-          (t: { url: string }) =>
-            (t.url.startsWith("http://") || t.url.startsWith("https://")) &&
-            !skipPrefixes.some((prefix) => t.url.startsWith(prefix))
-        );
-        // Prefer localhost/127.0.0.1 (likely the dev server)
-        const preferred = webPages.find(
-          (t: { url: string }) =>
-            t.url.startsWith("http://localhost") || t.url.startsWith("http://127.0.0.1")
-        ) ?? webPages[0] ?? pageTargets[0];
+        const pageTargets = await this.listPageTargets();
+        const preferred = this.selectPageTarget(pageTargets);
 
         let client: CDP.Client;
         if (preferred) {
@@ -277,6 +323,7 @@ export class CDPClient {
         }
 
         this.client = client;
+        this.preferredTargetId = preferred?.id ?? null;
         console.error(`[relay-inspect] Connected to Chrome.`);
 
         await this.enableDomains(client);
@@ -301,6 +348,101 @@ export class CDPClient {
       `Could not connect to Chrome at ${config.host}:${config.port} after ${maxRetries} attempts. ` +
       `Ensure Chrome is running with --remote-debugging-port=${config.port}.`
     );
+  }
+
+  async connectToPage(options: ConnectPageOptions): Promise<{ id: string; title: string; url: string }> {
+    if (process.env.CDP_WS_URL) {
+      throw new Error("Cannot switch page targets when CDP_WS_URL is set.");
+    }
+
+    if (this.connectingPromise) {
+      await this.connectingPromise.catch(() => undefined);
+    }
+
+    this.connectingPromise = this.connectToPageInternal(options);
+    try {
+      await this.connectingPromise;
+      const targetId = this.preferredTargetId;
+      if (!targetId) {
+        throw new Error("Connected, but no active target ID is available.");
+      }
+      const targets = await this.listPageTargets();
+      const selected = targets.find((t) => t.id === targetId);
+      if (!selected) {
+        throw new Error("Connected, but could not confirm selected target.");
+      }
+      return { id: selected.id, title: selected.title, url: selected.url };
+    } finally {
+      this.connectingPromise = null;
+    }
+  }
+
+  private async connectToPageInternal(options: ConnectPageOptions): Promise<CDP.Client> {
+    const matchById = options.id?.trim();
+    const matchByPattern = options.urlPattern?.trim();
+    const waitForMs = Math.max(0, options.waitForMs ?? 0);
+    const start = Date.now();
+
+    let selectedTarget: PageTarget | undefined;
+    let attempts = 0;
+    while (!selectedTarget) {
+      attempts += 1;
+      const pageTargets = await this.listPageTargets();
+      if (matchById) {
+        selectedTarget = pageTargets.find((t) => t.id === matchById);
+      } else if (matchByPattern) {
+        selectedTarget = this.findPatternMatch(pageTargets, matchByPattern);
+      }
+
+      if (selectedTarget) break;
+      if (waitForMs === 0 || Date.now() - start >= waitForMs) break;
+      await sleep(Math.min(300, waitForMs));
+    }
+
+    if (!selectedTarget) {
+      const criteria = matchById ? `id "${matchById}"` : `url pattern "${matchByPattern}"`;
+      throw new Error(`No page target found for ${criteria} after ${attempts} checks.`);
+    }
+
+    this.cleanup();
+    const client = await CDP({ host: config.host, port: config.port, target: selectedTarget.id });
+    this.client = client;
+    this.preferredTargetId = selectedTarget.id;
+    this.preferredUrlPattern = matchByPattern ?? null;
+
+    await this.enableDomains(client);
+    this.attachEventHandlers(client);
+    this.attachDisconnectHandler(client);
+    console.error(`[relay-inspect] Switched to target: ${selectedTarget.url}`);
+    return client;
+  }
+
+  private async listPageTargets(): Promise<PageTarget[]> {
+    const targets = await CDP.List({ host: config.host, port: config.port });
+    return normalizePageTargets(targets as Array<{ id: string; title?: string; type?: string; url?: string }>);
+  }
+
+  private selectPageTarget(pageTargets: PageTarget[]): PageTarget | undefined {
+    const explicitById = this.preferredTargetId
+      ? pageTargets.find((t) => t.id === this.preferredTargetId)
+      : undefined;
+    if (explicitById) return explicitById;
+
+    if (this.preferredUrlPattern) {
+      const explicitByPattern = this.findPatternMatch(pageTargets, this.preferredUrlPattern);
+      if (explicitByPattern) {
+        this.preferredTargetId = explicitByPattern.id;
+        return explicitByPattern;
+      }
+    }
+
+    return chooseDefaultTarget(pageTargets);
+  }
+
+  private findPatternMatch(pageTargets: PageTarget[], urlPattern: string): PageTarget | undefined {
+    const normalizedPattern = urlPattern.toLowerCase();
+    const matches = pageTargets.filter((t) => t.url.toLowerCase().includes(normalizedPattern));
+    return chooseDefaultTarget(matches);
   }
 
   private async cleanupOrphanedChrome(): Promise<void> {

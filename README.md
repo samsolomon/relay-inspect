@@ -34,12 +34,13 @@ Your agent gets access to the following tools automatically via MCP:
 |------|-------------|----------------|
 | `reload_page` | Reload the current page (optionally bypass cache) | `ignoreCache` (bool, default: false) |
 | `wait_and_check` | Wait N seconds then return new console output captured during the wait | `seconds` (number, default: 2) |
+| `connect_to_page` | Switch to a specific Chrome page target by ID or URL match | `id` (string) OR `urlPattern` (string), `waitForMs` (number) |
 
 ### Server Management
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `start_server` | Start a dev server or background process and capture its output | `id` (string), `command` (string), `args` (string[]), `cwd` (string), `env` (object) |
+| `start_server` | Start a dev server or background process and capture its output | `id` (string), `command` (string), `args` (string[]), `cwd` (string), `env` (object), optional `urlPattern` + `connectWaitForMs` |
 | `get_server_logs` | Read stdout/stderr output from a managed server process | `id` (string), `clear` (bool, default: true) |
 | `stop_server` | Stop a running managed server process | `id` (string) |
 | `list_servers` | List all managed server processes and their status | — |

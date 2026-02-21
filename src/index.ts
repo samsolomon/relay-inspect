@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import CDP from "chrome-remote-interface";
-import { cdpClient, config } from "./cdp-client.js";
+import { cdpClient, config, isInternalTargetUrl } from "./cdp-client.js";
 import { isAutoLaunchEnabled, findChromePath } from "./chrome-launcher.js";
 import { serverManager } from "./server-manager.js";
 
@@ -72,6 +72,7 @@ server.tool(
         url: t.url,
         title: t.title,
         id: t.id,
+        internal: isInternalTargetUrl(t.url),
       }));
 
       result.status = pages.length > 0
@@ -85,6 +86,82 @@ server.tool(
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };
+  },
+);
+
+// --- Tool: connect_to_page ---
+
+server.tool(
+  "connect_to_page",
+  "Connect to a specific Chrome page target by ID or URL pattern",
+  {
+    id: z
+      .string()
+      .optional()
+      .describe("Exact page target ID from check_connection"),
+    urlPattern: z
+      .string()
+      .optional()
+      .describe("URL substring to match (case-insensitive), e.g. localhost:5173"),
+    url_pattern: z
+      .string()
+      .optional()
+      .describe("Alias for urlPattern"),
+    waitForMs: z
+      .number()
+      .min(0)
+      .optional()
+      .default(0)
+      .describe("Optional timeout to wait for a matching page target to appear"),
+  },
+  async ({ id, urlPattern, url_pattern, waitForMs }) => {
+    const normalizedId = id?.trim();
+    const normalizedPattern = (urlPattern ?? url_pattern)?.trim();
+
+    if (normalizedId && normalizedPattern) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ error: "Provide either id or urlPattern/url_pattern, not both." }, null, 2),
+        }],
+      };
+    }
+
+    if (!normalizedId && !normalizedPattern) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ error: "Provide id or urlPattern/url_pattern." }, null, 2),
+        }],
+      };
+    }
+
+    try {
+      const selected = await cdpClient.connectToPage({
+        id: normalizedId,
+        urlPattern: normalizedPattern,
+        waitForMs,
+      });
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: true,
+              connected_target: selected,
+            },
+            null,
+            2,
+          ),
+        }],
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+      };
+    }
   },
 );
 
@@ -499,9 +576,43 @@ server.tool(
       .record(z.string())
       .optional()
       .describe("Additional environment variables"),
+    urlPattern: z
+      .string()
+      .optional()
+      .describe("Optional URL substring to connect to after server start (e.g. localhost:5173)"),
+    connectWaitForMs: z
+      .number()
+      .min(0)
+      .optional()
+      .default(15000)
+      .describe("How long to wait for urlPattern target to appear"),
   },
-  async ({ id, command, args, cwd, env }) => {
+  async ({ id, command, args, cwd, env, urlPattern, connectWaitForMs }) => {
     const result = serverManager.start({ id, command, args, cwd, env });
+
+    if (result.success && urlPattern) {
+      try {
+        const connected = await cdpClient.connectToPage({
+          urlPattern: urlPattern.trim(),
+          waitForMs: connectWaitForMs,
+        });
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ ...result, connected_target: connected }, null, 2),
+          }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ ...result, connect_error: message }, null, 2),
+          }],
+        };
+      }
+    }
+
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };
