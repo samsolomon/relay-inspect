@@ -86,7 +86,7 @@ annotationServer.onSendNotify((count) => {
 function connectionError(err: unknown): { content: [{ type: "text"; text: string }] } {
   const message = err instanceof Error ? err.message : String(err);
   const autoLaunch = isAutoLaunchEnabled();
-  return {
+  return withAnnotationCount({
     content: [{
       type: "text",
       text: JSON.stringify({
@@ -96,7 +96,35 @@ function connectionError(err: unknown): { content: [{ type: "text"; text: string
           : `Auto-launch is disabled (CHROME_AUTO_LAUNCH=false). Launch Chrome with --remote-debugging-port=${config.port}, or enable auto-launch.`,
       }, null, 2),
     }],
-  };
+  });
+}
+
+// --- Passive annotation count wrapper ---
+
+function withAnnotationCount(
+  result: { content: Array<{ type: string; text?: string }> },
+) {
+  const port = getAnnotationPort();
+  if (port === null) return result;
+
+  const openCount = annotationServer
+    .getAnnotations()
+    .filter((a) => a.status === "open").length;
+  if (openCount === 0) return result;
+
+  for (const block of result.content) {
+    if (block.type === "text" && block.text) {
+      try {
+        const parsed = JSON.parse(block.text);
+        parsed.pending_annotations = openCount;
+        block.text = JSON.stringify(parsed, null, 2);
+        break;
+      } catch {
+        /* not JSON — skip */
+      }
+    }
+  }
+  return result;
 }
 
 // --- Tool: check_connection ---
@@ -128,9 +156,9 @@ server.tool(
       result.hint = isAutoLaunchEnabled()
         ? "Chrome will be auto-launched on the next tool call, or launch it manually with: chrome --remote-debugging-port=" + config.port
         : "Launch Chrome with: chrome --remote-debugging-port=" + config.port;
-      return {
+      return withAnnotationCount({
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
+      });
     }
 
     // Step 2: Enumerate targets
@@ -153,9 +181,9 @@ server.tool(
       result.status = "Chrome is reachable but target enumeration failed";
     }
 
-    return {
+    return withAnnotationCount({
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-    };
+    });
   },
 );
 
@@ -189,21 +217,21 @@ server.tool(
     const normalizedPattern = (urlPattern ?? url_pattern)?.trim();
 
     if (normalizedId && normalizedPattern) {
-      return {
+      return withAnnotationCount({
         content: [{
           type: "text",
           text: JSON.stringify({ error: "Provide either id or urlPattern/url_pattern, not both." }, null, 2),
         }],
-      };
+      });
     }
 
     if (!normalizedId && !normalizedPattern) {
-      return {
+      return withAnnotationCount({
         content: [{
           type: "text",
           text: JSON.stringify({ error: "Provide id or urlPattern/url_pattern." }, null, 2),
         }],
-      };
+      });
     }
 
     try {
@@ -213,7 +241,7 @@ server.tool(
         waitForMs,
       });
 
-      return {
+      return withAnnotationCount({
         content: [{
           type: "text",
           text: JSON.stringify(
@@ -226,12 +254,12 @@ server.tool(
             2,
           ),
         }],
-      };
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return {
+      return withAnnotationCount({
         content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
-      };
+      });
     }
   },
 );
@@ -262,25 +290,25 @@ server.tool(
         const text = result.exceptionDetails.exception?.description
           ?? result.exceptionDetails.text
           ?? "Unknown error";
-        return {
+        return withAnnotationCount({
           content: [{
             type: "text",
             text: JSON.stringify({ error: text }, null, 2),
           }],
-        };
+        });
       }
 
-      return {
+      return withAnnotationCount({
         content: [{
           type: "text",
           text: JSON.stringify({ result: result.result.value }, null, 2),
         }],
-      };
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return {
+      return withAnnotationCount({
         content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
-      };
+      });
     }
   },
 );
@@ -308,12 +336,12 @@ server.tool(
       ? cdpClient.consoleLogs.drain()
       : cdpClient.consoleLogs.peek();
 
-    return {
+    return withAnnotationCount({
       content: [{
         type: "text",
         text: JSON.stringify({ count: entries.length, entries }, null, 2),
       }],
-    };
+    });
   },
 );
 
@@ -348,12 +376,12 @@ server.tool(
       entries = entries.filter((e) => e.url.includes(filter));
     }
 
-    return {
+    return withAnnotationCount({
       content: [{
         type: "text",
         text: JSON.stringify({ count: entries.length, entries }, null, 2),
       }],
-    };
+    });
   },
 );
 
@@ -386,7 +414,7 @@ server.tool(
       });
 
       if (result.nodeIds.length === 0) {
-        return {
+        return withAnnotationCount({
           content: [{
             type: "text",
             text: JSON.stringify(
@@ -395,7 +423,7 @@ server.tool(
               2,
             ),
           }],
-        };
+        });
       }
 
       const nodeIds = result.nodeIds.slice(0, limit);
@@ -411,7 +439,7 @@ server.tool(
         }
       }
 
-      return {
+      return withAnnotationCount({
         content: [{
           type: "text",
           text: JSON.stringify(
@@ -420,12 +448,12 @@ server.tool(
             2,
           ),
         }],
-      };
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return {
+      return withAnnotationCount({
         content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
-      };
+      });
     }
   },
 );
@@ -458,7 +486,7 @@ server.tool(
     // Capture what arrived during the wait
     const entries = cdpClient.consoleLogs.drain();
 
-    return {
+    return withAnnotationCount({
       content: [{
         type: "text",
         text: JSON.stringify(
@@ -467,7 +495,7 @@ server.tool(
           2,
         ),
       }],
-    };
+    });
   },
 );
 
@@ -546,17 +574,17 @@ server.tool(
     try {
       await client.Page.reload({ ignoreCache });
 
-      return {
+      return withAnnotationCount({
         content: [{
           type: "text",
           text: JSON.stringify({ success: true, ignoreCache }, null, 2),
         }],
-      };
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return {
+      return withAnnotationCount({
         content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
-      };
+      });
     }
   },
 );
@@ -617,12 +645,12 @@ server.tool(
       detail.requestBody = null;
     }
 
-    return {
+    return withAnnotationCount({
       content: [{
         type: "text",
         text: JSON.stringify(detail, null, 2),
       }],
-    };
+    });
   },
 );
 
@@ -667,7 +695,7 @@ server.tool(
           urlPattern: urlPattern.trim(),
           waitForMs: connectWaitForMs,
         });
-        return {
+        return withAnnotationCount({
           content: [{
             type: "text",
             text: JSON.stringify({
@@ -676,21 +704,21 @@ server.tool(
               hint: "The annotation overlay has been auto-injected. Call wait_for_send now to listen for user annotations — do not wait for the user to ask.",
             }, null, 2),
           }],
-        };
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return {
+        return withAnnotationCount({
           content: [{
             type: "text",
             text: JSON.stringify({ ...result, connect_error: message }, null, 2),
           }],
-        };
+        });
       }
     }
 
-    return {
+    return withAnnotationCount({
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-    };
+    });
   },
 );
 
@@ -709,9 +737,9 @@ server.tool(
   },
   async ({ id, clear }) => {
     const result = serverManager.getLogs(id, clear);
-    return {
+    return withAnnotationCount({
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-    };
+    });
   },
 );
 
@@ -725,9 +753,9 @@ server.tool(
   },
   async ({ id }) => {
     const result = await serverManager.stop(id);
-    return {
+    return withAnnotationCount({
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-    };
+    });
   },
 );
 
@@ -739,9 +767,9 @@ server.tool(
   {},
   async () => {
     const servers = serverManager.list();
-    return {
+    return withAnnotationCount({
       content: [{ type: "text", text: JSON.stringify({ servers }, null, 2) }],
-    };
+    });
   },
 );
 
