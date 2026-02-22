@@ -33,6 +33,8 @@ export function buildOverlayScript(port: number): string {
   var currentPath = location.pathname;
   var dragState = null; // { startX, startY, dragging }
   var selectionRectEl = null;
+  var dragHighlighted = []; // elements with .relay-annotate-drag-match
+  var dragHighlightTimer = null;
 
   // --- Styles ---
   var styleEl = document.createElement('style');
@@ -97,6 +99,10 @@ export function buildOverlayScript(port: number): string {
     '.relay-annotate-selection-rect {',
     '  position: fixed; border: 2px solid #7C3AED; background: rgba(124, 58, 237, 0.10);',
     '  z-index: 999996; pointer-events: none; display: none;',
+    '}',
+    '.relay-annotate-drag-match {',
+    '  outline: 2px solid #7C3AED !important; outline-offset: -1px;',
+    '  background-color: rgba(124, 58, 237, 0.08) !important;',
     '}',
   ].join('\\n');
   document.head.appendChild(styleEl);
@@ -255,6 +261,7 @@ export function buildOverlayScript(port: number): string {
       hoveredEl = null;
       dragState = null;
       selectionRectEl.style.display = 'none';
+      clearDragHighlights();
       closePopover();
     }
   }
@@ -492,6 +499,33 @@ export function buildOverlayScript(port: number): string {
     return filtered.slice(0, MAX_DRAG_ELEMENTS);
   }
 
+  function clearDragHighlights() {
+    for (var i = 0; i < dragHighlighted.length; i++) {
+      dragHighlighted[i].classList.remove('relay-annotate-drag-match');
+    }
+    dragHighlighted = [];
+    if (dragHighlightTimer) {
+      clearTimeout(dragHighlightTimer);
+      dragHighlightTimer = null;
+    }
+  }
+
+  function updateDragHighlights(selRect) {
+    if (dragHighlightTimer) return; // throttle
+    dragHighlightTimer = setTimeout(function() {
+      dragHighlightTimer = null;
+      // Remove old highlights
+      for (var i = 0; i < dragHighlighted.length; i++) {
+        dragHighlighted[i].classList.remove('relay-annotate-drag-match');
+      }
+      // Find and highlight new matches
+      dragHighlighted = findElementsInRect(selRect);
+      for (var i = 0; i < dragHighlighted.length; i++) {
+        dragHighlighted[i].classList.add('relay-annotate-drag-match');
+      }
+    }, 60);
+  }
+
   // --- Multi-element popover (drag selection) ---
   function showMultiCreatePopover(elements, anchorRect) {
     closePopover();
@@ -602,6 +636,7 @@ export function buildOverlayScript(port: number): string {
         selectionRectEl.style.top = top + 'px';
         selectionRectEl.style.width = width + 'px';
         selectionRectEl.style.height = height + 'px';
+        updateDragHighlights({ left: left, top: top, right: left + width, bottom: top + height });
         return;
       }
     }
@@ -624,6 +659,7 @@ export function buildOverlayScript(port: number): string {
         bottom: Math.max(dragState.startY, e.clientY),
       };
       selectionRectEl.style.display = 'none';
+      clearDragHighlights();
       dragState = null;
       var elements = findElementsInRect(selRect);
       if (elements.length === 0) return;
@@ -795,6 +831,7 @@ export function buildOverlayScript(port: number): string {
       if (dragState && dragState.dragging) {
         dragState = null;
         selectionRectEl.style.display = 'none';
+        clearDragHighlights();
       } else if (popoverEl) {
         closePopover();
       } else if (annotationMode) {
