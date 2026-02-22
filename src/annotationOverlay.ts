@@ -317,7 +317,7 @@ export function buildOverlayScript(port: number): string {
     popover.appendChild(info);
 
     var textarea = document.createElement('textarea');
-    textarea.placeholder = 'Add feedback...';
+    textarea.placeholder = 'Add feedback... (Enter to save, Shift+Enter for new line)';
     popover.appendChild(textarea);
 
     var actions = document.createElement('div');
@@ -330,6 +330,14 @@ export function buildOverlayScript(port: number): string {
     var saveBtn = document.createElement('button');
     saveBtn.textContent = 'Save';
     saveBtn.className = 'primary';
+
+    textarea.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        saveBtn.click();
+      }
+    });
+
     saveBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       var text = textarea.value.trim();
@@ -387,6 +395,17 @@ export function buildOverlayScript(port: number): string {
     var actions = document.createElement('div');
     actions.className = 'relay-annotate-popover-actions';
 
+    var saveBtn = document.createElement('button');
+    saveBtn.textContent = 'Save';
+    saveBtn.className = 'primary';
+
+    textarea.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        saveBtn.click();
+      }
+    });
+
     var deleteBtn = document.createElement('button');
     deleteBtn.textContent = 'Delete';
     deleteBtn.className = 'danger';
@@ -409,9 +428,6 @@ export function buildOverlayScript(port: number): string {
     cancelBtn.textContent = 'Cancel';
     cancelBtn.addEventListener('click', function(e) { e.stopPropagation(); closePopover(); });
 
-    var saveBtn = document.createElement('button');
-    saveBtn.textContent = 'Save';
-    saveBtn.className = 'primary';
     saveBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       var text = textarea.value.trim();
