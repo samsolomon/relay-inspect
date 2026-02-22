@@ -713,7 +713,7 @@ server.tool(
 
 server.tool(
   "inject_annotation_overlay",
-  "Inject the annotation overlay into the current browser page. Users can pin visual feedback to DOM elements. Safe to call repeatedly (idempotent).",
+  "Re-inject the annotation overlay into the current browser page. The overlay is auto-injected on every Chrome connection — this tool is only needed if the page was navigated via a full reload that cleared the injected script. Safe to call repeatedly (idempotent).",
   {},
   async () => {
     // Lazy-start annotation server
@@ -784,7 +784,7 @@ server.tool(
         content: [{
           type: "text",
           text: JSON.stringify({
-            error: "Annotation server is not running. Call inject_annotation_overlay first.",
+            error: "Annotation server is not running. It starts automatically when Chrome connects — try any browser tool first to trigger a connection.",
           }, null, 2),
         }],
       };
@@ -851,7 +851,7 @@ server.tool(
         content: [{
           type: "text",
           text: JSON.stringify({
-            error: "Annotation server is not running. Call inject_annotation_overlay first.",
+            error: "Annotation server is not running. It starts automatically when Chrome connects — try any browser tool first to trigger a connection.",
           }, null, 2),
         }],
       };
