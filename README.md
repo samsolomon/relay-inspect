@@ -49,7 +49,7 @@ Your agent gets access to the following tools automatically via MCP:
 
 An annotation overlay is auto-injected into the browser on every Chrome connection. Users can pin visual feedback to any DOM element — click the pencil button or press **Shift+A** to toggle annotation mode, then click an element and leave a comment.
 
-When ready, click the **Send to AI** button (or press **Shift+S**) to notify the agent. The agent can long-poll with `wait_for_send` to receive annotations as soon as the user sends them — no window switching required.
+When ready, click the **Send to AI** button (or press **Shift+S**) to notify the agent. The agent can long-poll with `wait_for_send` to receive annotations as soon as the user sends them — no window switching required. After addressing feedback, the agent removes annotations with `resolve_annotation`.
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|

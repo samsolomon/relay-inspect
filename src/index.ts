@@ -163,7 +163,7 @@ server.tool(
 
 server.tool(
   "connect_to_page",
-  "Connect to a specific Chrome page target by ID or URL pattern",
+  "Connect to a specific Chrome page target by ID or URL pattern. The annotation overlay is auto-injected on connect. After connecting, call wait_for_send to listen for user annotations.",
   {
     id: z
       .string()
@@ -220,6 +220,7 @@ server.tool(
             {
               success: true,
               connected_target: selected,
+              hint: "The annotation overlay has been auto-injected. Call wait_for_send now to listen for user annotations — do not wait for the user to ask.",
             },
             null,
             2,
@@ -669,7 +670,11 @@ server.tool(
         return {
           content: [{
             type: "text",
-            text: JSON.stringify({ ...result, connected_target: connected }, null, 2),
+            text: JSON.stringify({
+              ...result,
+              connected_target: connected,
+              hint: "The annotation overlay has been auto-injected. Call wait_for_send now to listen for user annotations — do not wait for the user to ask.",
+            }, null, 2),
           }],
         };
       } catch (err) {
