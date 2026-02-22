@@ -190,6 +190,7 @@ export class CDPClient {
   private launchedProcess: ChildProcess | null = null;
   private preferredTargetId: string | null = null;
   private preferredUrlPattern: string | null = null;
+  private onConnectCallback: ((client: CDP.Client) => Promise<void>) | null = null;
 
   readonly consoleLogs: CircularBuffer<ConsoleEntry>;
   readonly networkRequests: CircularBuffer<NetworkEntry>;
@@ -198,6 +199,14 @@ export class CDPClient {
   constructor() {
     this.consoleLogs = new CircularBuffer<ConsoleEntry>(config.consoleBufferSize);
     this.networkRequests = new CircularBuffer<NetworkEntry>(config.networkBufferSize);
+  }
+
+  /**
+   * Register a callback that fires after every successful connection.
+   * Used to auto-inject the annotation overlay.
+   */
+  onConnect(cb: (client: CDP.Client) => Promise<void>): void {
+    this.onConnectCallback = cb;
   }
 
   /**
@@ -222,9 +231,20 @@ export class CDPClient {
 
     this.connectingPromise = this.connect();
     try {
-      return await this.connectingPromise;
+      const client = await this.connectingPromise;
+      await this.fireOnConnect(client);
+      return client;
     } finally {
       this.connectingPromise = null;
+    }
+  }
+
+  private async fireOnConnect(client: CDP.Client): Promise<void> {
+    if (!this.onConnectCallback) return;
+    try {
+      await this.onConnectCallback(client);
+    } catch (err) {
+      console.error(`[relay-inspect] onConnect callback error: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -361,7 +381,7 @@ export class CDPClient {
 
     this.connectingPromise = this.connectToPageInternal(options);
     try {
-      await this.connectingPromise;
+      const client = await this.connectingPromise;
       const targetId = this.preferredTargetId;
       if (!targetId) {
         throw new Error("Connected, but no active target ID is available.");
@@ -371,6 +391,7 @@ export class CDPClient {
       if (!selected) {
         throw new Error("Connected, but could not confirm selected target.");
       }
+      await this.fireOnConnect(client);
       return { id: selected.id, title: selected.title, url: selected.url };
     } finally {
       this.connectingPromise = null;

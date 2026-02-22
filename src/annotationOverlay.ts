@@ -398,7 +398,19 @@ export function buildOverlayScript(port: number): string {
     textarea.focus();
   }
 
-  // --- Click handler for annotation mode ---
+  // --- Event handlers for annotation mode ---
+  // Block mousedown/pointerdown in capture phase to prevent the app from
+  // reacting (e.g. closing modals) before our click handler fires.
+  function blockEventInAnnotationMode(e) {
+    if (!annotationMode) return;
+    if (e.target.closest('[data-relay-ignore]')) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  document.addEventListener('pointerdown', blockEventInAnnotationMode, true);
+  document.addEventListener('mousedown', blockEventInAnnotationMode, true);
+  document.addEventListener('touchstart', blockEventInAnnotationMode, true);
+
   document.addEventListener('click', function(e) {
     if (!annotationMode) return;
     var target = e.target;

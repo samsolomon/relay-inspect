@@ -13,6 +13,19 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
+// --- Auto-inject annotation overlay on every new Chrome connection ---
+
+cdpClient.onConnect(async (client) => {
+  const port = await annotationServer.start();
+  const script = buildOverlayScript(port);
+  await client.Runtime.evaluate({
+    expression: script,
+    returnByValue: true,
+    awaitPromise: false,
+  });
+  console.error("[relay-inspect] Annotation overlay auto-injected.");
+});
+
 // --- Helper ---
 
 function connectionError(err: unknown): { content: [{ type: "text"; text: string }] } {
