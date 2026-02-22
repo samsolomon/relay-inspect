@@ -70,6 +70,7 @@ export function buildOverlayScript(port: number): string {
   var dragHighlighted = []; // elements with .relay-annotate-drag-match
   var dragHighlightTimer = null;
   var sentUntil = 0; // timestamp — don't reset sent state until this expires
+  var sendingEnabled = false; // one-time onboarding gate for Send button
 
   // --- Styles ---
   var styleEl = document.createElement('style');
@@ -113,7 +114,7 @@ export function buildOverlayScript(port: number): string {
     // --- Toolbar button (shared base) ---
     '.relay-toolbar-btn {',
     '  position: fixed; height: 40px; border-radius: 20px;',
-    '  border: 1px solid var(--relay-border); cursor: pointer; z-index: 999997;',
+    '  border: 1px solid var(--relay-border); cursor: pointer; z-index: 999997; overflow: visible;',
     '  display: flex; align-items: center; justify-content: center; gap: 6px;',
     '  padding: 0 14px 0 12px;',
     '  box-shadow: 0 2px 12px var(--relay-shadow);',
@@ -203,8 +204,6 @@ export function buildOverlayScript(port: number): string {
     '.relay-annotate-selector-info {',
     '  font-size: 11px; color: var(--relay-text-secondary); margin-bottom: 6px;',
     '}',
-    '.relay-annotate-hint { display: none;',
-    '}',
     '.relay-annotate-selection-rect {',
     '  position: fixed; border: 2px solid #7C3AED; background: rgba(124, 58, 237, 0.10);',
     '  z-index: 999996; pointer-events: none; display: none;',
@@ -219,6 +218,36 @@ export function buildOverlayScript(port: number): string {
     '  background: var(--relay-border); font-size: 11px; font-weight: 700; line-height: 1;',
     '}',
     '.relay-toolbar-btn.sent .relay-send-count { background: rgba(255,255,255,0.25); }',
+    // --- Modal styles ---
+    '.relay-annotate-modal-backdrop {',
+    '  position: fixed; top: 0; left: 0; right: 0; bottom: 0;',
+    '  background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center;',
+    '  z-index: 1000000;',
+    '}',
+    '.relay-annotate-modal {',
+    '  width: 340px; border-radius: 12px; padding: 24px;',
+    '  background: var(--relay-bg-solid); color: var(--relay-text);',
+    '  border: 1px solid var(--relay-border); box-shadow: 0 8px 32px var(--relay-shadow);',
+    '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
+    '}',
+    '.relay-annotate-modal h3 {',
+    '  font-size: 15px; font-weight: 700; margin: 0 0 12px;',
+    '}',
+    '.relay-annotate-modal p {',
+    '  font-size: 13px; color: var(--relay-text-secondary); line-height: 1.5; margin: 0 0 12px;',
+    '}',
+    '.relay-annotate-modal code {',
+    '  display: block; padding: 8px 12px; border-radius: 6px; margin: 0 0 12px;',
+    '  background: var(--relay-input-bg); border: 1px solid var(--relay-border-subtle);',
+    '  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;',
+    '  font-size: 12px; color: var(--relay-text); white-space: pre-wrap;',
+    '}',
+    '.relay-annotate-modal button {',
+    '  width: 100%; height: 36px; border-radius: 18px; border: none; cursor: pointer;',
+    '  background: #7C3AED; color: #fff; font-size: 13px; font-weight: 600;',
+    '  font-family: inherit; transition: background 0.15s;',
+    '}',
+    '.relay-annotate-modal button:hover { background: #6D28D9; }',
   ].join('\\n');
   document.head.appendChild(styleEl);
 
@@ -228,6 +257,7 @@ export function buildOverlayScript(port: number): string {
   var SEND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg>';
   var CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
   var TRASH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
+  var INFO_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>';
 
   // --- Selector generator ---
   var MAX_SELECTOR_DEPTH = 10;
@@ -392,22 +422,84 @@ export function buildOverlayScript(port: number): string {
   sendBtn.appendChild(sendTooltip);
   rootEl.appendChild(sendBtn);
 
+  // "Enable sending" button (onboarding gate — shown instead of sendBtn until dismissed)
+  var enableSendBtn = document.createElement('button');
+  enableSendBtn.className = 'relay-toolbar-btn';
+  enableSendBtn.style.display = 'none';
+  enableSendBtn.setAttribute('data-relay-ignore', 'true');
+  var enableSendIcon = document.createElement('span');
+  enableSendIcon.innerHTML = INFO_SVG;
+  enableSendIcon.style.display = 'flex';
+  enableSendBtn.appendChild(enableSendIcon);
+  var enableSendLabel = document.createElement('span');
+  enableSendLabel.textContent = 'Enable sending';
+  enableSendBtn.appendChild(enableSendLabel);
+  var enableSendTooltip = document.createElement('span');
+  enableSendTooltip.className = 'relay-toolbar-tooltip';
+  enableSendTooltip.innerHTML = '<kbd>Shift</kbd><kbd>S</kbd>';
+  enableSendBtn.appendChild(enableSendTooltip);
+  rootEl.appendChild(enableSendBtn);
+
+  // --- Instructional modal ---
+  var modalBackdrop = document.createElement('div');
+  modalBackdrop.className = 'relay-annotate-modal-backdrop';
+  modalBackdrop.setAttribute('data-relay-ignore', 'true');
+  modalBackdrop.style.display = 'none';
+  var modalCard = document.createElement('div');
+  modalCard.className = 'relay-annotate-modal';
+  var modalH3 = document.createElement('h3');
+  modalH3.textContent = 'Send annotations to your AI';
+  modalCard.appendChild(modalH3);
+  var modalP1 = document.createElement('p');
+  modalP1.textContent = 'In your terminal, ask the agent to listen for annotations. For example:';
+  modalCard.appendChild(modalP1);
+  var modalCode = document.createElement('code');
+  modalCode.textContent = 'Listen for my annotations';
+  modalCard.appendChild(modalCode);
+  var modalP2 = document.createElement('p');
+  modalP2.textContent = 'Once listening, you can send feedback directly from the browser.';
+  modalCard.appendChild(modalP2);
+  var modalOkBtn = document.createElement('button');
+  modalOkBtn.textContent = 'OK';
+  modalCard.appendChild(modalOkBtn);
+  modalCard.addEventListener('click', function(e) { e.stopPropagation(); });
+  modalBackdrop.appendChild(modalCard);
+  rootEl.appendChild(modalBackdrop);
+
+  function showModal() {
+    modalBackdrop.style.display = 'flex';
+  }
+  function dismissModal() {
+    sendingEnabled = true;
+    modalBackdrop.style.display = 'none';
+    renderBadges();
+  }
+  modalOkBtn.addEventListener('click', dismissModal);
+  modalBackdrop.addEventListener('click', dismissModal);
+
+  enableSendBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    showModal();
+  });
+
   // Set initial position via JS (top/left) so drag can update them
   var BTN_SIZE = 40;
   var BTN_MARGIN = 8;
   toggleBtn.style.top = (window.innerHeight - BTN_SIZE - BTN_MARGIN) + 'px';
   toggleBtn.style.left = (window.innerWidth - BTN_SIZE - BTN_MARGIN) + 'px';
 
-  // --- Position send button relative to toggle button ---
-  function positionSendBtn() {
+  // --- Position toolbar buttons relative to toggle button ---
+  function positionToolbarBtn(btn) {
     var toggleLeft = parseFloat(toggleBtn.style.left) || 0;
     var toggleTop = parseFloat(toggleBtn.style.top) || 0;
-    var sendWidth = sendBtn.offsetWidth || 100;
-    var left = toggleLeft - sendWidth - 8;
+    var btnWidth = btn.offsetWidth || 100;
+    var left = toggleLeft - btnWidth - 8;
     if (left < BTN_MARGIN) left = toggleLeft + BTN_SIZE + 8;
-    sendBtn.style.left = left + 'px';
-    sendBtn.style.top = toggleTop + 'px';
+    btn.style.left = left + 'px';
+    btn.style.top = toggleTop + 'px';
   }
+  function positionSendBtn() { positionToolbarBtn(sendBtn); }
+  function positionEnableSendBtn() { positionToolbarBtn(enableSendBtn); }
 
   // --- Toggle annotation mode ---
   function setAnnotationMode(active) {
@@ -461,6 +553,7 @@ export function buildOverlayScript(port: number): string {
       toggleBtn.style.left = newLeft + 'px';
       toggleBtn.style.top = newTop + 'px';
       positionSendBtn();
+      positionEnableSendBtn();
     }
   });
 
@@ -483,6 +576,7 @@ export function buildOverlayScript(port: number): string {
     toggleBtn.style.left = Math.max(BTN_MARGIN, Math.min(left, window.innerWidth - BTN_SIZE - BTN_MARGIN)) + 'px';
     toggleBtn.style.top = Math.max(BTN_MARGIN, Math.min(top, window.innerHeight - BTN_SIZE - BTN_MARGIN)) + 'px';
     positionSendBtn();
+    positionEnableSendBtn();
   });
 
   // --- Highlight on hover (used when not dragging) ---
@@ -548,11 +642,6 @@ export function buildOverlayScript(port: number): string {
     textarea.placeholder = 'Add feedback...';
     popover.appendChild(textarea);
 
-    var hint = document.createElement('div');
-    hint.className = 'relay-annotate-hint';
-    hint.textContent = 'Enter to save, Shift+Enter for new line';
-    popover.appendChild(hint);
-
     var actions = document.createElement('div');
     actions.className = 'relay-annotate-popover-actions';
 
@@ -617,11 +706,6 @@ export function buildOverlayScript(port: number): string {
     var textarea = document.createElement('textarea');
     textarea.value = annotation.text;
     popover.appendChild(textarea);
-
-    var hint = document.createElement('div');
-    hint.className = 'relay-annotate-hint';
-    hint.textContent = 'Enter to save, Shift+Enter for new line';
-    popover.appendChild(hint);
 
     var actions = document.createElement('div');
     actions.className = 'relay-annotate-popover-actions';
@@ -752,11 +836,6 @@ export function buildOverlayScript(port: number): string {
     var textarea = document.createElement('textarea');
     textarea.placeholder = 'Add feedback...';
     popover.appendChild(textarea);
-
-    var hint = document.createElement('div');
-    hint.className = 'relay-annotate-hint';
-    hint.textContent = 'Enter to save, Shift+Enter for new line';
-    popover.appendChild(hint);
 
     var actions = document.createElement('div');
     actions.className = 'relay-annotate-popover-actions';
@@ -988,21 +1067,29 @@ export function buildOverlayScript(port: number): string {
       badgeElements.push(pin);
     });
 
-    // Update Send button visibility and count
+    // Update Send / Enable-sending button visibility
     var openCount = annotations.filter(function(a) { return a.status === 'open'; }).length;
     if (openCount > 0) {
-      sendBtn.style.display = 'flex';
-      sendCountBadge.textContent = String(openCount);
-      // Only reset sent state after the animation window expires
-      if (Date.now() >= sentUntil) {
-        sendBtn.classList.remove('sent');
-        sendIconSpan.innerHTML = SEND_SVG;
-        sendLabel.textContent = 'Send';
-        sendBtn.style.pointerEvents = '';
+      if (sendingEnabled) {
+        enableSendBtn.style.display = 'none';
+        sendBtn.style.display = 'flex';
+        sendCountBadge.textContent = String(openCount);
+        // Only reset sent state after the animation window expires
+        if (Date.now() >= sentUntil) {
+          sendBtn.classList.remove('sent');
+          sendIconSpan.innerHTML = SEND_SVG;
+          sendLabel.textContent = 'Send';
+          sendBtn.style.pointerEvents = '';
+        }
+        positionSendBtn();
+      } else {
+        sendBtn.style.display = 'none';
+        enableSendBtn.style.display = 'flex';
+        positionEnableSendBtn();
       }
-      positionSendBtn();
     } else {
       sendBtn.style.display = 'none';
+      enableSendBtn.style.display = 'none';
     }
   }
 
@@ -1108,11 +1195,14 @@ export function buildOverlayScript(port: number): string {
       e.preventDefault();
       setAnnotationMode(!annotationMode);
     }
-    // Shift+S to send to AI
+    // Shift+S to send to AI (or open onboarding modal)
     if (e.shiftKey && e.key === 'S' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       var tag2 = (document.activeElement || {}).tagName;
       if (tag2 === 'INPUT' || tag2 === 'TEXTAREA' || tag2 === 'SELECT') return;
-      if (sendBtn.style.display !== 'none') {
+      if (enableSendBtn.style.display !== 'none') {
+        e.preventDefault();
+        showModal();
+      } else if (sendBtn.style.display !== 'none') {
         e.preventDefault();
         triggerSend();
       }
