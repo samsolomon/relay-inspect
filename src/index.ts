@@ -8,6 +8,19 @@ import { serverManager } from "./server-manager.js";
 import { annotationServer, getAnnotationPort } from "./annotationServer.js";
 import { buildOverlayScript } from "./annotationOverlay.js";
 
+// --- Crash Guards ---
+// Register before any async work. CDP operations can reject at any time
+// (Chrome restarts, page navigations, etc.) — don't let that kill the server.
+
+process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
+  console.error("[relay-inspect] Unhandled rejection:", msg);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[relay-inspect] Uncaught exception:", err.stack ?? err.message);
+});
+
 const server = new McpServer({
   name: "relay-inspect",
   version: "0.1.0",
