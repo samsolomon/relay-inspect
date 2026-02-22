@@ -108,18 +108,29 @@ export function buildOverlayScript(port: number): string {
     '  --relay-pin-border: rgba(255, 255, 255, 0.3);',
     '  --relay-pin-shadow: rgba(0, 0, 0, 0.15);',
     '}',
-    // --- Component styles ---
-    '.relay-annotate-btn {',
-    '  position: fixed; width: 40px; height: 40px;',
-    '  border-radius: 50%; border: 1px solid var(--relay-border); cursor: grab; z-index: 999997;',
-    '  display: flex; align-items: center; justify-content: center;',
-    '  box-shadow: 0 2px 12px var(--relay-shadow); transition: background 0.15s;',
+    // --- Toolbar button (shared base) ---
+    '.relay-toolbar-btn {',
+    '  position: fixed; height: 40px; border-radius: 20px;',
+    '  border: 1px solid var(--relay-border); cursor: pointer; z-index: 999997;',
+    '  display: flex; align-items: center; justify-content: center; gap: 6px;',
+    '  padding: 0 14px 0 12px;',
+    '  box-shadow: 0 2px 12px var(--relay-shadow);',
+    '  transition: background 0.15s, border-color 0.15s;',
     '  background: var(--relay-bg-solid); color: var(--relay-text); touch-action: none;',
+    '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
+    '  font-size: 13px; font-weight: 500; white-space: nowrap;',
     '}',
-    '.relay-annotate-btn.active {',
-    '  background: rgba(124, 58, 237, 0.8); border-color: rgba(124, 58, 237, 0.5); color: #fff;',
+    '.relay-toolbar-btn svg { width: 18px; height: 18px; flex-shrink: 0; }',
+    '.relay-toolbar-btn--icon { width: 40px; padding: 0; cursor: grab; }',
+    '.relay-toolbar-btn.active,',
+    '.relay-toolbar-btn--primary {',
+    '  background: #7C3AED; color: #fff; border-color: rgba(124, 58, 237, 0.5);',
     '}',
-    '.relay-annotate-btn svg { width: 20px; height: 20px; }',
+    '.relay-toolbar-btn.active:hover,',
+    '.relay-toolbar-btn--primary:hover { background: #6D28D9; }',
+    '.relay-toolbar-btn.sent {',
+    '  background: #059669; color: #fff; border-color: rgba(5, 150, 105, 0.5);',
+    '}',
     '.relay-annotate-mode-bar {',
     '  position: fixed; top: 0; left: 0; right: 0; height: 3px;',
     '  background: #7C3AED; z-index: 999998; pointer-events: none;',
@@ -188,19 +199,6 @@ export function buildOverlayScript(port: number): string {
     '  outline: 2px solid #7C3AED !important; outline-offset: -1px;',
     '  background-color: rgba(124, 58, 237, 0.08) !important;',
     '}',
-    '.relay-annotate-send-btn {',
-    '  position: fixed; height: 40px; border-radius: 20px; border: 1px solid var(--relay-border);',
-    '  cursor: pointer; z-index: 999997; display: none; align-items: center; gap: 6px;',
-    '  padding: 0 14px 0 12px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
-    '  font-size: 13px; font-weight: 500; white-space: nowrap; touch-action: none;',
-    '  box-shadow: 0 2px 12px var(--relay-shadow); transition: background 0.15s, border-color 0.15s;',
-    '  background: #7C3AED; color: #fff; border-color: rgba(124, 58, 237, 0.5);',
-    '}',
-    '.relay-annotate-send-btn:hover { background: #6D28D9; }',
-    '.relay-annotate-send-btn.sent {',
-    '  background: #059669; border-color: rgba(5, 150, 105, 0.5);',
-    '}',
-    '.relay-annotate-send-btn svg { width: 16px; height: 16px; flex-shrink: 0; }',
     '.relay-send-count {',
     '  display: inline-flex; align-items: center; justify-content: center;',
     '  min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px;',
@@ -347,7 +345,7 @@ export function buildOverlayScript(port: number): string {
 
   // Toggle button
   toggleBtn = document.createElement('button');
-  toggleBtn.className = 'relay-annotate-btn';
+  toggleBtn.className = 'relay-toolbar-btn relay-toolbar-btn--icon';
   toggleBtn.setAttribute('data-relay-ignore', 'true');
   toggleBtn.setAttribute('title', 'Toggle annotation mode (Shift+A)');
   toggleBtn.innerHTML = PENCIL_SVG;
@@ -355,7 +353,8 @@ export function buildOverlayScript(port: number): string {
 
   // Send to AI button
   var sendBtn = document.createElement('button');
-  sendBtn.className = 'relay-annotate-send-btn';
+  sendBtn.className = 'relay-toolbar-btn relay-toolbar-btn--primary';
+  sendBtn.style.display = 'none';
   sendBtn.setAttribute('data-relay-ignore', 'true');
   sendBtn.setAttribute('title', 'Send annotations to AI (Shift+S)');
   var sendIconSpan = document.createElement('span');
