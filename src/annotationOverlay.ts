@@ -68,7 +68,6 @@ export function buildOverlayScript(port: number): string {
   var dragHighlighted = []; // elements with .relay-annotate-drag-match
   var dragHighlightTimer = null;
   var sentUntil = 0; // timestamp — don't reset sent state until this expires
-  var agentListening = false;
 
   // --- Styles ---
   var styleEl = document.createElement('style');
@@ -220,17 +219,6 @@ export function buildOverlayScript(port: number): string {
     '  background: var(--relay-border); font-size: 11px; font-weight: 700; line-height: 1;',
     '}',
     '.relay-toolbar-btn.sent .relay-send-count { background: rgba(255,255,255,0.25); }',
-    '.relay-send-status {',
-    '  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;',
-    '  background: #9ca3af; transition: background 0.3s;',
-    '}',
-    '.relay-send-status.listening {',
-    '  background: #22c55e; animation: relay-pulse 2s ease-in-out infinite;',
-    '}',
-    '@keyframes relay-pulse {',
-    '  0%, 100% { opacity: 1; }',
-    '  50% { opacity: 0.5; }',
-    '}',
   ].join('\\n');
   document.head.appendChild(styleEl);
 
@@ -386,9 +374,6 @@ export function buildOverlayScript(port: number): string {
   sendBtn.className = 'relay-toolbar-btn';
   sendBtn.style.display = 'none';
   sendBtn.setAttribute('data-relay-ignore', 'true');
-  var statusDot = document.createElement('span');
-  statusDot.className = 'relay-send-status';
-  sendBtn.appendChild(statusDot);
   var sendIconSpan = document.createElement('span');
   sendIconSpan.innerHTML = SEND_SVG;
   sendIconSpan.style.display = 'flex';
@@ -1158,18 +1143,6 @@ export function buildOverlayScript(port: number): string {
       }
     }
   });
-
-  // --- Agent listening poll ---
-  setInterval(function() {
-    if (sendBtn.style.display === 'none') return;
-    fetch(API + '/').then(function(r) { return r.json(); }).then(function(data) {
-      var listening = !!data.agentListening;
-      if (listening !== agentListening) {
-        agentListening = listening;
-        statusDot.classList.toggle('listening', listening);
-      }
-    }).catch(function() { /* ignore */ });
-  }, 3000);
 
   // --- Init ---
   refreshAnnotations();

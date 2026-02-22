@@ -225,7 +225,6 @@ export class AnnotationServer {
           status: "ok",
           count: this.annotations.size,
           port: this.port,
-          agentListening: this.sendResolver !== null,
         });
         return;
       }
