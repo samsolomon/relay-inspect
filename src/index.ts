@@ -1154,7 +1154,11 @@ server.tool(
       return {
         content: [{
           type: "text",
-          text: JSON.stringify({ timeout: true, waited_seconds: timeout }, null, 2),
+          text: JSON.stringify({
+            timeout: true,
+            waited_seconds: timeout,
+            hint: "No annotations sent yet. Call wait_for_send again to keep listening.",
+          }, null, 2),
         }],
       };
     }
@@ -1196,6 +1200,13 @@ server.tool(
     // Signal "processing" after annotations are cleaned up to avoid ghost pins
     previousWaitForSendTriggered = true;
     injectProcessingState("processing");
+
+    content.push({
+      type: "text",
+      text: JSON.stringify({
+        hint: "After addressing these annotations, call wait_for_send again to keep listening for more.",
+      }, null, 2),
+    });
 
     return { content };
   },
