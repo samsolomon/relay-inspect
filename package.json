@@ -9,7 +9,8 @@
     "build": "tsup",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gallery": "tsx examples/gallery.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
