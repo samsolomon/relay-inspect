@@ -183,10 +183,12 @@ export function buildOverlayScript(port: number): string {
     '  background: #7C3AED; color: #fff; border-color: transparent; font-weight: 600;',
     '}',
     '.relay-annotate-popover-actions button.primary:hover { background: #6D28D9; }',
-    '.relay-annotate-popover-actions button.danger {',
-    '  color: #f87171; border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.1);',
+    '.relay-annotate-popover-actions button.ghost-icon {',
+    '  width: 32px; padding: 0; margin-right: auto; border: none;',
+    '  background: transparent; color: var(--relay-text-secondary);',
     '}',
-    '.relay-annotate-popover-actions button.danger:hover { background: rgba(248, 113, 113, 0.2); }',
+    '.relay-annotate-popover-actions button.ghost-icon:hover { background: transparent; color: #f87171; }',
+    '.relay-annotate-popover-actions button.ghost-icon svg { width: 16px; height: 16px; }',
     '.relay-annotate-pin {',
     '  position: absolute; width: 20px; height: 20px; border-radius: 50%;',
     '  background: rgba(124, 58, 237, 0.85); color: #fff; font-size: 10px; font-weight: 700;',
@@ -223,6 +225,7 @@ export function buildOverlayScript(port: number): string {
   var CLOSE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
   var SEND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg>';
   var CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  var TRASH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
 
   // --- Selector generator ---
   var MAX_SELECTOR_DEPTH = 10;
@@ -633,8 +636,8 @@ export function buildOverlayScript(port: number): string {
     });
 
     var deleteBtn = document.createElement('button');
-    deleteBtn.textContent = 'Delete';
-    deleteBtn.className = 'danger';
+    deleteBtn.innerHTML = TRASH_SVG;
+    deleteBtn.className = 'ghost-icon';
     deleteBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       deleteBtn.disabled = true;
