@@ -56,6 +56,18 @@ annotationServer.onScreenshot(async (rect) => {
   }
 });
 
+// --- "Send to AI" notification callback ---
+
+annotationServer.onSendNotify((count) => {
+  server.sendLoggingMessage({
+    level: "info",
+    logger: "annotations",
+    data: count > 0
+      ? `User clicked "Send to AI" — ${count} open annotation(s). Use list_annotations or wait_for_send to review.`
+      : `User clicked "Send to AI" but no open annotations remain.`,
+  }).catch(() => { /* ignore if not connected */ });
+});
+
 // --- Helper ---
 
 function connectionError(err: unknown): { content: [{ type: "text"; text: string }] } {

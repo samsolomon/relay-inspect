@@ -73,12 +73,21 @@ export class AnnotationServer {
   private screenshotCallback: ScreenshotCallback | null = null;
   private sendResolver: (() => void) | null = null;
   private sendLatched = false;
+  private sendNotifyCallback: ((count: number) => void) | null = null;
 
   /**
    * Register a callback to capture element screenshots via CDP.
    */
   onScreenshot(cb: ScreenshotCallback): void {
     this.screenshotCallback = cb;
+  }
+
+  /**
+   * Register a callback fired when the user clicks "Send to AI".
+   * Used to push an MCP logging notification to the agent.
+   */
+  onSendNotify(cb: (count: number) => void): void {
+    this.sendNotifyCallback = cb;
   }
 
   waitForSend(timeoutMs: number): Promise<{ triggered: boolean }> {
@@ -215,6 +224,11 @@ export class AnnotationServer {
           this.sendResolver();
         } else {
           this.sendLatched = true;
+        }
+        // Notify agent via MCP logging
+        if (this.sendNotifyCallback) {
+          const openCount = Array.from(this.annotations.values()).filter((a) => a.status === "open").length;
+          this.sendNotifyCallback(openCount);
         }
         jsonResponse(res, 200, { success: true });
         return;
