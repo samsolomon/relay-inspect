@@ -237,6 +237,7 @@ export function buildOverlayScript(port: number): string {
     toggleBtn.classList.toggle('active', active);
     toggleBtn.innerHTML = active ? CLOSE_SVG : PENCIL_SVG;
     modeBarEl.classList.toggle('active', active);
+    document.documentElement.style.cursor = active ? 'crosshair' : '';
     if (!active) {
       highlightEl.style.display = 'none';
       hoveredEl = null;
