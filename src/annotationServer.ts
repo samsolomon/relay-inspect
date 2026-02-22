@@ -129,6 +129,10 @@ export class AnnotationServer {
     return ann;
   }
 
+  deleteAnnotation(id: string): boolean {
+    return this.annotations.delete(id);
+  }
+
   async shutdown(): Promise<void> {
     if (!this.server) return;
     return new Promise((resolve) => {

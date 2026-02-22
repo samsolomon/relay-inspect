@@ -776,14 +776,8 @@ server.tool(
 server.tool(
   "list_annotations",
   "List all annotations pinned by the user in the browser overlay",
-  {
-    includeResolved: z
-      .boolean()
-      .optional()
-      .default(false)
-      .describe("Include resolved annotations (default: false, only open)"),
-  },
-  async ({ includeResolved }) => {
+  {},
+  async () => {
     const port = getAnnotationPort();
     if (port === null) {
       return {
@@ -796,10 +790,7 @@ server.tool(
       };
     }
 
-    let items = annotationServer.getAnnotations();
-    if (!includeResolved) {
-      items = items.filter((a) => a.status === "open");
-    }
+    const items = annotationServer.getAnnotations();
 
     if (items.length === 0) {
       return {
@@ -807,9 +798,7 @@ server.tool(
           type: "text",
           text: JSON.stringify({
             count: 0,
-            message: includeResolved
-              ? "No annotations found."
-              : "No open annotations. Use includeResolved: true to see resolved ones.",
+            message: "No annotations found.",
           }, null, 2),
         }],
       };
@@ -868,8 +857,8 @@ server.tool(
       };
     }
 
-    const resolved = annotationServer.resolveAnnotation(id);
-    if (!resolved) {
+    const annotation = annotationServer.getAnnotation(id);
+    if (!annotation) {
       return {
         content: [{
           type: "text",
@@ -878,38 +867,32 @@ server.tool(
       };
     }
 
-    // Update the badge visually in the browser if connected
+    // Remove the badge from the browser and delete the annotation
     try {
       const client = await cdpClient.ensureConnected();
-      // Sanitize id to prevent injection — only allow UUID characters
       const safeId = id.replace(/[^a-f0-9-]/gi, "");
       await client.Runtime.evaluate({
         expression: `(function() {
           var pin = document.querySelector('[data-relay-annotation-id="${safeId}"]');
-          if (pin) {
-            pin.style.background = '#9CA3AF';
-            pin.style.textDecoration = 'line-through';
-            pin.style.pointerEvents = 'none';
-            pin.style.opacity = '0.7';
-          }
-          if (typeof window.__relayAnnotateRefresh === 'function') {
-            window.__relayAnnotateRefresh();
-          }
+          if (pin) pin.remove();
           return true;
         })()`,
         returnByValue: true,
         awaitPromise: false,
       });
     } catch {
-      // Best-effort — badge update is visual-only
+      // Best-effort — badge removal is visual-only
     }
+
+    annotationServer.deleteAnnotation(id);
 
     return {
       content: [{
         type: "text",
         text: JSON.stringify({
           success: true,
-          annotation: resolved,
+          id: annotation.id,
+          feedback: annotation.text,
         }, null, 2),
       }],
     };

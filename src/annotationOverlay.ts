@@ -89,10 +89,6 @@ export function buildOverlayScript(port: number): string {
     '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
     '  user-select: none; line-height: 1;',
     '}',
-    '.relay-annotate-pin.resolved {',
-    '  background: #9CA3AF; text-decoration: line-through;',
-    '  pointer-events: none; opacity: 0.7;',
-    '}',
     '.relay-annotate-selector-info {',
     '  font-size: 11px; color: #888; margin-bottom: 6px; word-break: break-all;',
     '}',
@@ -492,7 +488,7 @@ export function buildOverlayScript(port: number): string {
       }
 
       var pin = document.createElement('div');
-      pin.className = 'relay-annotate-pin' + (ann.status === 'resolved' ? ' resolved' : '');
+      pin.className = 'relay-annotate-pin';
       pin.setAttribute('data-relay-ignore', 'true');
       pin.setAttribute('data-relay-annotation-id', ann.id);
       pin.textContent = String(nextBadgeNumber);
@@ -516,13 +512,10 @@ export function buildOverlayScript(port: number): string {
       pin.style.top = (baseTop + offsetY) + 'px';
       pin.style.left = baseLeft + 'px';
 
-      // Click to edit (only open annotations)
-      if (ann.status !== 'resolved') {
-        pin.addEventListener('click', function(e) {
-          e.stopPropagation();
-          showEditPopover(ann, pin);
-        });
-      }
+      pin.addEventListener('click', function(e) {
+        e.stopPropagation();
+        showEditPopover(ann, pin);
+      });
 
       document.body.appendChild(pin);
       badgeElements.push(pin);
