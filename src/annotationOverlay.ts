@@ -198,7 +198,7 @@ export function buildOverlayScript(port: number): string {
     '.relay-annotate-popover-actions button.ghost-icon:hover { background: var(--relay-btn-hover); color: #f87171; }',
     '.relay-annotate-popover-actions button.ghost-icon svg { width: 16px; height: 16px; }',
     '.relay-annotate-pin {',
-    '  position: absolute; width: 20px; height: 20px; border-radius: 50%;',
+    '  position: fixed; width: 20px; height: 20px; border-radius: 50%;',
     '  background: rgba(124, 58, 237, 0.85); color: #fff; font-size: 10px; font-weight: 700;',
     '  display: flex; align-items: center; justify-content: center;',
     '  cursor: pointer; z-index: 999997;',
@@ -1124,47 +1124,13 @@ export function buildOverlayScript(port: number): string {
     });
 
     pageAnnotations.forEach(function(ann) {
-      var baseTop, baseLeft;
-
-      if (ann.anchorPoint) {
-        // Multi-element annotation: position badge at the saved anchor point
-        baseTop = ann.anchorPoint.y + window.scrollY - 10;
-        baseLeft = ann.anchorPoint.x + window.scrollX - 10;
-      } else {
-        // Single-element annotation: position at the element
-        var targetEl = null;
-        try { targetEl = document.querySelector(ann.selector); } catch(e) { /* invalid selector */ }
-        if (!targetEl) return;
-
-        // Skip hidden elements (closed dialogs, display:none modals, etc.)
-        if (typeof targetEl.checkVisibility === 'function') {
-          if (!targetEl.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return;
-        }
-
-        var rect = targetEl.getBoundingClientRect();
-        baseTop = rect.top + window.scrollY - 10;
-        baseLeft = rect.right + window.scrollX - 10;
-      }
-
       var pin = document.createElement('div');
       pin.className = 'relay-annotate-pin';
       pin.setAttribute('data-relay-ignore', 'true');
       pin.setAttribute('data-relay-annotation-id', ann.id);
       pin.textContent = String(nextBadgeNumber);
+      pin.__relayAnn = ann;
       nextBadgeNumber++;
-
-      // Collision avoidance: offset overlapping badges by 24px
-      var offsetY = 0;
-      for (var i = 0; i < positions.length; i++) {
-        var p = positions[i];
-        if (Math.abs(p.left - baseLeft) < 20 && Math.abs(p.top + p.offsetY - baseTop - offsetY) < 20) {
-          offsetY += 24;
-        }
-      }
-      positions.push({ left: baseLeft, top: baseTop, offsetY: offsetY });
-
-      pin.style.top = (baseTop + offsetY) + 'px';
-      pin.style.left = baseLeft + 'px';
 
       pin.addEventListener('click', function(e) {
         e.stopPropagation();
@@ -1174,6 +1140,8 @@ export function buildOverlayScript(port: number): string {
       rootEl.appendChild(pin);
       badgeElements.push(pin);
     });
+
+    repositionBadges();
 
     // Update Send / Enable-sending button visibility
     var openCount = annotations.filter(function(a) { return a.status === 'open'; }).length;
@@ -1200,6 +1168,56 @@ export function buildOverlayScript(port: number): string {
       enableSendBtn.style.display = 'none';
     }
   }
+
+  // --- Reposition pins without recreating DOM (used on scroll) ---
+  function repositionBadges() {
+    var positions = [];
+    for (var i = 0; i < badgeElements.length; i++) {
+      var pin = badgeElements[i];
+      var ann = pin.__relayAnn;
+      if (!ann) continue;
+      var baseTop, baseLeft;
+      if (ann.anchorPoint) {
+        baseTop = ann.anchorPoint.y - 10;
+        baseLeft = ann.anchorPoint.x - 10;
+      } else {
+        var targetEl = null;
+        try { targetEl = document.querySelector(ann.selector); } catch(e) { /* invalid selector */ }
+        if (!targetEl) { pin.style.display = 'none'; continue; }
+        if (typeof targetEl.checkVisibility === 'function') {
+          if (!targetEl.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) {
+            pin.style.display = 'none'; continue;
+          }
+        }
+        var rect = targetEl.getBoundingClientRect();
+        baseTop = rect.top - 10;
+        baseLeft = rect.right - 10;
+      }
+      // Collision avoidance
+      var offsetY = 0;
+      for (var j = 0; j < positions.length; j++) {
+        var p = positions[j];
+        if (Math.abs(p.left - baseLeft) < 20 && Math.abs(p.top + p.offsetY - baseTop - offsetY) < 20) {
+          offsetY += 24;
+        }
+      }
+      positions.push({ left: baseLeft, top: baseTop, offsetY: offsetY });
+      pin.style.display = '';
+      pin.style.top = (baseTop + offsetY) + 'px';
+      pin.style.left = baseLeft + 'px';
+    }
+  }
+
+  // Smooth scroll tracking via rAF
+  var scrollRAF = null;
+  window.addEventListener('scroll', function() {
+    if (badgeElements.length === 0) return;
+    if (scrollRAF) return;
+    scrollRAF = requestAnimationFrame(function() {
+      scrollRAF = null;
+      repositionBadges();
+    });
+  }, true);
 
   // --- Send to AI click handler ---
   function triggerSend() {
