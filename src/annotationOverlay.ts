@@ -209,10 +209,6 @@ export function buildOverlayScript(port: number): string {
     '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
     '  user-select: none; line-height: 1;',
     '}',
-    '.relay-annotate-pin::after {',
-    '  content: ""; position: absolute;',
-    '  top: -8px; left: -8px; right: -8px; bottom: -8px;',
-    '}',
     '.relay-annotate-selector-info {',
     '  font-size: 11px; color: var(--relay-text-secondary); margin-bottom: 6px;',
     '}',
@@ -1358,12 +1354,12 @@ export function buildOverlayScript(port: number): string {
   window.addEventListener('popstate', onUrlChange);
 
   // --- DOM mutation observer (modals, dialogs, drawers) ---
-  var repositionDebounceTimer = null;
-  function debouncedRepositionBadges() {
-    if (repositionDebounceTimer) return;
-    repositionDebounceTimer = setTimeout(function() {
-      repositionDebounceTimer = null;
-      repositionBadges();
+  var renderDebounceTimer = null;
+  function debouncedRenderBadges() {
+    if (renderDebounceTimer) return;
+    renderDebounceTimer = setTimeout(function() {
+      renderDebounceTimer = null;
+      renderBadges();
     }, 150);
   }
 
@@ -1374,7 +1370,7 @@ export function buildOverlayScript(port: number): string {
     for (var i = 0; i < mutations.length; i++) {
       var target = mutations[i].target;
       if (target.nodeType === 1 && target.hasAttribute && target.hasAttribute('data-relay-ignore')) continue;
-      debouncedRepositionBadges();
+      debouncedRenderBadges();
       return;
     }
   });
