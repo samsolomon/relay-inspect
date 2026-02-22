@@ -20,6 +20,38 @@ export function buildOverlayScript(port: number): string {
   // --- Config ---
   var API = 'http://127.0.0.1:${port}';
 
+  // --- Background luminance detection ---
+  function detectDarkBackground() {
+    var samples = [document.documentElement, document.body];
+    for (var i = 0; i < samples.length; i++) {
+      if (!samples[i]) continue;
+      var bg = getComputedStyle(samples[i]).backgroundColor;
+      if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') continue;
+      var match = bg.match(/\\d+/g);
+      if (!match || match.length < 3) continue;
+      var r = parseInt(match[0], 10) / 255;
+      var g = parseInt(match[1], 10) / 255;
+      var b = parseInt(match[2], 10) / 255;
+      // sRGB → linear
+      r = r <= 0.03928 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
+      g = g <= 0.03928 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
+      b = b <= 0.03928 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
+      var luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      return luminance < 0.4;
+    }
+    return false; // default: assume light site (browser default white)
+  }
+
+  var isDarkSite = detectDarkBackground();
+
+  // --- Root wrapper ---
+  var rootEl = document.createElement('div');
+  rootEl.className = 'relay-annotate-root';
+  rootEl.setAttribute('data-relay-ignore', 'true');
+  rootEl.setAttribute('data-relay-theme', isDarkSite ? 'dark' : 'light');
+  rootEl.style.display = 'contents';
+  document.body.appendChild(rootEl);
+
   // --- State ---
   var annotationMode = false;
   var annotations = [];
@@ -40,13 +72,48 @@ export function buildOverlayScript(port: number): string {
   var styleEl = document.createElement('style');
   styleEl.setAttribute('data-relay-ignore', 'true');
   styleEl.textContent = [
+    // --- Theme variables ---
+    '.relay-annotate-root[data-relay-theme="light"] {',
+    '  --relay-bg: rgba(10, 10, 10, 0.75);',
+    '  --relay-bg-solid: #1e1e1e;',
+    '  --relay-text: rgba(255, 255, 255, 0.95);',
+    '  --relay-text-secondary: rgba(255, 255, 255, 0.4);',
+    '  --relay-text-hint: rgba(255, 255, 255, 0.3);',
+    '  --relay-border: rgba(255, 255, 255, 0.12);',
+    '  --relay-border-subtle: rgba(255, 255, 255, 0.1);',
+    '  --relay-input-bg: rgba(255, 255, 255, 0.06);',
+    '  --relay-btn-bg: rgba(255, 255, 255, 0.06);',
+    '  --relay-btn-text: rgba(255, 255, 255, 0.7);',
+    '  --relay-btn-hover: rgba(255, 255, 255, 0.12);',
+    '  --relay-shadow: rgba(0, 0, 0, 0.4);',
+    '  --relay-placeholder: rgba(255, 255, 255, 0.3);',
+    '  --relay-pin-border: rgba(255, 255, 255, 0.2);',
+    '  --relay-pin-shadow: rgba(0, 0, 0, 0.3);',
+    '}',
+    '.relay-annotate-root[data-relay-theme="dark"] {',
+    '  --relay-bg: rgba(255, 255, 255, 0.88);',
+    '  --relay-bg-solid: #f0f0f0;',
+    '  --relay-text: rgba(0, 0, 0, 0.88);',
+    '  --relay-text-secondary: rgba(0, 0, 0, 0.45);',
+    '  --relay-text-hint: rgba(0, 0, 0, 0.35);',
+    '  --relay-border: rgba(0, 0, 0, 0.12);',
+    '  --relay-border-subtle: rgba(0, 0, 0, 0.1);',
+    '  --relay-input-bg: rgba(0, 0, 0, 0.04);',
+    '  --relay-btn-bg: rgba(0, 0, 0, 0.04);',
+    '  --relay-btn-text: rgba(0, 0, 0, 0.6);',
+    '  --relay-btn-hover: rgba(0, 0, 0, 0.08);',
+    '  --relay-shadow: rgba(0, 0, 0, 0.15);',
+    '  --relay-placeholder: rgba(0, 0, 0, 0.3);',
+    '  --relay-pin-border: rgba(255, 255, 255, 0.3);',
+    '  --relay-pin-shadow: rgba(0, 0, 0, 0.15);',
+    '}',
+    // --- Component styles ---
     '.relay-annotate-btn {',
     '  position: fixed; width: 40px; height: 40px;',
-    '  border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.12); cursor: grab; z-index: 999997;',
+    '  border-radius: 50%; border: 1px solid var(--relay-border); cursor: grab; z-index: 999997;',
     '  display: flex; align-items: center; justify-content: center;',
-    '  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); transition: background 0.15s;',
-    '  background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);',
-    '  color: rgba(255, 255, 255, 0.9); touch-action: none;',
+    '  box-shadow: 0 2px 12px var(--relay-shadow); transition: background 0.15s;',
+    '  background: var(--relay-bg-solid); color: var(--relay-text); touch-action: none;',
     '}',
     '.relay-annotate-btn.active {',
     '  background: rgba(124, 58, 237, 0.8); border-color: rgba(124, 58, 237, 0.5); color: #fff;',
@@ -65,29 +132,29 @@ export function buildOverlayScript(port: number): string {
     '}',
     '.relay-annotate-popover {',
     '  position: fixed; width: 280px; border-radius: 8px;',
-    '  background: rgba(10, 10, 10, 0.75); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);',
-    '  border: 1px solid rgba(255, 255, 255, 0.1);',
-    '  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4); z-index: 999999;',
+    '  background: var(--relay-bg); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);',
+    '  border: 1px solid var(--relay-border-subtle);',
+    '  box-shadow: 0 4px 24px var(--relay-shadow); z-index: 999999;',
     '  padding: 12px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
-    '  font-size: 13px; color: rgba(255, 255, 255, 0.95);',
+    '  font-size: 13px; color: var(--relay-text);',
     '}',
     '.relay-annotate-popover textarea {',
-    '  width: 100%; min-height: 60px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px;',
+    '  width: 100%; min-height: 60px; border: 1px solid var(--relay-border-subtle); border-radius: 4px;',
     '  padding: 8px; font-size: 13px; font-family: inherit; resize: vertical;',
     '  box-sizing: border-box; outline: none;',
-    '  background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.95);',
+    '  background: var(--relay-input-bg); color: var(--relay-text);',
     '}',
     '.relay-annotate-popover textarea:focus { border-color: rgba(124, 58, 237, 0.6); }',
-    '.relay-annotate-popover textarea::placeholder { color: rgba(255, 255, 255, 0.3); }',
+    '.relay-annotate-popover textarea::placeholder { color: var(--relay-placeholder); }',
     '.relay-annotate-popover-actions {',
     '  display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end;',
     '}',
     '.relay-annotate-popover-actions button {',
-    '  padding: 4px 12px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.12);',
+    '  padding: 4px 12px; border-radius: 4px; border: 1px solid var(--relay-border);',
     '  cursor: pointer; font-size: 12px; font-family: inherit; transition: background 0.15s, border-color 0.15s;',
-    '  background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.7);',
+    '  background: var(--relay-btn-bg); color: var(--relay-btn-text);',
     '}',
-    '.relay-annotate-popover-actions button:hover { background: rgba(255, 255, 255, 0.12); }',
+    '.relay-annotate-popover-actions button:hover { background: var(--relay-btn-hover); }',
     '.relay-annotate-popover-actions button:disabled { opacity: 0.4; cursor: default; }',
     '.relay-annotate-popover-actions button.primary {',
     '  background: rgba(124, 58, 237, 0.8); color: #fff; border-color: rgba(124, 58, 237, 0.5);',
@@ -102,15 +169,15 @@ export function buildOverlayScript(port: number): string {
     '  background: rgba(124, 58, 237, 0.85); color: #fff; font-size: 10px; font-weight: 700;',
     '  display: flex; align-items: center; justify-content: center;',
     '  cursor: pointer; z-index: 999997;',
-    '  border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);',
+    '  border: 1px solid var(--relay-pin-border); box-shadow: 0 2px 8px var(--relay-pin-shadow);',
     '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
     '  user-select: none; line-height: 1;',
     '}',
     '.relay-annotate-selector-info {',
-    '  font-size: 11px; color: rgba(255, 255, 255, 0.4); margin-bottom: 6px; word-break: break-all;',
+    '  font-size: 11px; color: var(--relay-text-secondary); margin-bottom: 6px; word-break: break-all;',
     '}',
     '.relay-annotate-hint {',
-    '  font-size: 11px; color: rgba(255, 255, 255, 0.3); margin-top: 4px;',
+    '  font-size: 11px; color: var(--relay-text-hint); margin-top: 4px;',
     '}',
     '.relay-annotate-selection-rect {',
     '  position: fixed; border: 2px solid #7C3AED; background: rgba(124, 58, 237, 0.10);',
@@ -243,19 +310,19 @@ export function buildOverlayScript(port: number): string {
   modeBarEl = document.createElement('div');
   modeBarEl.className = 'relay-annotate-mode-bar';
   modeBarEl.setAttribute('data-relay-ignore', 'true');
-  document.body.appendChild(modeBarEl);
+  rootEl.appendChild(modeBarEl);
 
   // Highlight overlay
   highlightEl = document.createElement('div');
   highlightEl.className = 'relay-annotate-highlight';
   highlightEl.setAttribute('data-relay-ignore', 'true');
-  document.body.appendChild(highlightEl);
+  rootEl.appendChild(highlightEl);
 
   // Selection rectangle
   selectionRectEl = document.createElement('div');
   selectionRectEl.className = 'relay-annotate-selection-rect';
   selectionRectEl.setAttribute('data-relay-ignore', 'true');
-  document.body.appendChild(selectionRectEl);
+  rootEl.appendChild(selectionRectEl);
 
   // Toggle button
   toggleBtn = document.createElement('button');
@@ -263,11 +330,13 @@ export function buildOverlayScript(port: number): string {
   toggleBtn.setAttribute('data-relay-ignore', 'true');
   toggleBtn.setAttribute('title', 'Toggle annotation mode (Shift+A)');
   toggleBtn.innerHTML = PENCIL_SVG;
-  document.body.appendChild(toggleBtn);
+  rootEl.appendChild(toggleBtn);
 
   // Set initial position via JS (top/left) so drag can update them
-  toggleBtn.style.top = (window.innerHeight - 40 - 20) + 'px';
-  toggleBtn.style.left = (window.innerWidth - 40 - 20) + 'px';
+  var BTN_SIZE = 40;
+  var BTN_MARGIN = 8;
+  toggleBtn.style.top = (window.innerHeight - BTN_SIZE - BTN_MARGIN) + 'px';
+  toggleBtn.style.left = (window.innerWidth - BTN_SIZE - BTN_MARGIN) + 'px';
 
   // --- Toggle annotation mode ---
   function setAnnotationMode(active) {
@@ -314,9 +383,9 @@ export function buildOverlayScript(port: number): string {
     if (btnDrag.dragging) {
       var newLeft = e.clientX - btnDrag.offsetX;
       var newTop = e.clientY - btnDrag.offsetY;
-      // Clamp within viewport
-      newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - 40));
-      newTop = Math.max(0, Math.min(newTop, window.innerHeight - 40));
+      // Clamp within viewport with margin
+      newLeft = Math.max(BTN_MARGIN, Math.min(newLeft, window.innerWidth - BTN_SIZE - BTN_MARGIN));
+      newTop = Math.max(BTN_MARGIN, Math.min(newTop, window.innerHeight - BTN_SIZE - BTN_MARGIN));
       toggleBtn.style.left = newLeft + 'px';
       toggleBtn.style.top = newTop + 'px';
     }
@@ -331,6 +400,14 @@ export function buildOverlayScript(port: number): string {
     if (!wasDrag) {
       setAnnotationMode(!annotationMode);
     }
+  });
+
+  // Clamp button back into view on window resize
+  window.addEventListener('resize', function() {
+    var left = parseFloat(toggleBtn.style.left) || 0;
+    var top = parseFloat(toggleBtn.style.top) || 0;
+    toggleBtn.style.left = Math.max(BTN_MARGIN, Math.min(left, window.innerWidth - BTN_SIZE - BTN_MARGIN)) + 'px';
+    toggleBtn.style.top = Math.max(BTN_MARGIN, Math.min(top, window.innerHeight - BTN_SIZE - BTN_MARGIN)) + 'px';
   });
 
   // --- Highlight on hover (used when not dragging) ---
@@ -454,7 +531,7 @@ export function buildOverlayScript(port: number): string {
     actions.appendChild(saveBtn);
     popover.appendChild(actions);
 
-    document.body.appendChild(popover);
+    rootEl.appendChild(popover);
     popoverEl = popover;
     positionPopover(popover, rect);
     textarea.focus();
@@ -531,7 +608,7 @@ export function buildOverlayScript(port: number): string {
     actions.appendChild(saveBtn);
     popover.appendChild(actions);
 
-    document.body.appendChild(popover);
+    rootEl.appendChild(popover);
     popoverEl = popover;
     positionPopover(popover, rect);
     textarea.focus();
@@ -687,7 +764,7 @@ export function buildOverlayScript(port: number): string {
     actions.appendChild(saveBtn);
     popover.appendChild(actions);
 
-    document.body.appendChild(popover);
+    rootEl.appendChild(popover);
     popoverEl = popover;
     positionPopover(popover, anchorRect);
     textarea.focus();
@@ -846,7 +923,7 @@ export function buildOverlayScript(port: number): string {
         showEditPopover(ann, pin);
       });
 
-      document.body.appendChild(pin);
+      rootEl.appendChild(pin);
       badgeElements.push(pin);
     });
   }
