@@ -341,6 +341,26 @@ body.dark-bg .gallery-card {
   </div>
 </div>
 
+<!-- ============ Shortcuts Modal ============ -->
+<div class="gallery-section">
+  <h2>Shortcuts Modal</h2>
+  <div class="gallery-row">
+    <div class="relay-annotate-modal-backdrop" style="width: 420px; padding: 24px;">
+      <div class="relay-annotate-modal">
+        <h3>Keyboard Shortcuts</h3>
+        <table class="relay-shortcuts-table">
+          <tr><td><kbd>Shift</kbd> + <kbd>A</kbd></td><td>Toggle annotation mode</td></tr>
+          <tr><td><kbd>Shift</kbd> + <kbd>S</kbd></td><td>Send to AI</td></tr>
+          <tr><td><kbd>Shift</kbd> + <kbd>D</kbd></td><td>Toggle light / dark</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Dismiss / exit</td></tr>
+          <tr><td><kbd>?</kbd></td><td>Show shortcuts</td></tr>
+        </table>
+        <button>Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ============ Tokens Reference ============ -->
 <div class="gallery-section">
   <h2>Design Tokens</h2>

@@ -266,6 +266,26 @@ export function buildOverlayScript(port: number): string {
     '  font-family: inherit; transition: background 0.15s;',
     '}',
     '.relay-annotate-modal > button:hover { background: #6D28D9; }',
+    // --- Shortcuts table ---
+    '.relay-shortcuts-table {',
+    '  width: 100%; border-collapse: collapse; margin: 0 0 16px;',
+    '}',
+    '.relay-shortcuts-table td {',
+    '  padding: 6px 0; font-size: 13px; vertical-align: middle;',
+    '  border-bottom: 1px solid var(--relay-border-subtle);',
+    '}',
+    '.relay-shortcuts-table tr:last-child td { border-bottom: none; }',
+    '.relay-shortcuts-table td:first-child {',
+    '  width: 120px; white-space: nowrap;',
+    '}',
+    '.relay-shortcuts-table td:last-child {',
+    '  color: var(--relay-text-secondary);',
+    '}',
+    '.relay-shortcuts-table kbd {',
+    '  padding: 2px 6px; border-radius: var(--relay-radius-xs);',
+    '  border: 1px solid var(--relay-border); background: var(--relay-btn-bg);',
+    '  font-family: inherit; font-size: 12px; line-height: 1.3;',
+    '}',
   ].join('\\n');
   document.head.appendChild(styleEl);
 
@@ -514,6 +534,60 @@ export function buildOverlayScript(port: number): string {
     e.stopPropagation();
     showModal();
   });
+
+  // --- Theme toggle ---
+  function toggleTheme() {
+    var current = rootEl.getAttribute('data-relay-theme');
+    rootEl.setAttribute('data-relay-theme', current === 'dark' ? 'light' : 'dark');
+  }
+
+  // --- Shortcuts modal ---
+  var shortcutsBackdrop = document.createElement('div');
+  shortcutsBackdrop.className = 'relay-annotate-modal-backdrop';
+  shortcutsBackdrop.setAttribute('data-relay-ignore', 'true');
+  shortcutsBackdrop.style.display = 'none';
+  var shortcutsCard = document.createElement('div');
+  shortcutsCard.className = 'relay-annotate-modal';
+  var shortcutsH3 = document.createElement('h3');
+  shortcutsH3.textContent = 'Keyboard Shortcuts';
+  shortcutsCard.appendChild(shortcutsH3);
+  var shortcutsTable = document.createElement('table');
+  shortcutsTable.className = 'relay-shortcuts-table';
+  var shortcuts = [
+    ['Shift', 'A', 'Toggle annotation mode'],
+    ['Shift', 'S', 'Send to AI'],
+    ['Shift', 'D', 'Toggle light / dark'],
+    ['Esc', null, 'Dismiss / exit'],
+    ['?', null, 'Show shortcuts'],
+  ];
+  shortcuts.forEach(function(s) {
+    var tr = document.createElement('tr');
+    var tdKeys = document.createElement('td');
+    tdKeys.innerHTML = s[1]
+      ? '<kbd>' + s[0] + '</kbd> + <kbd>' + s[1] + '</kbd>'
+      : '<kbd>' + s[0] + '</kbd>';
+    tr.appendChild(tdKeys);
+    var tdDesc = document.createElement('td');
+    tdDesc.textContent = s[2];
+    tr.appendChild(tdDesc);
+    shortcutsTable.appendChild(tr);
+  });
+  shortcutsCard.appendChild(shortcutsTable);
+  var shortcutsCloseBtn = document.createElement('button');
+  shortcutsCloseBtn.textContent = 'Close';
+  shortcutsCard.appendChild(shortcutsCloseBtn);
+  shortcutsCard.addEventListener('click', function(e) { e.stopPropagation(); });
+  shortcutsBackdrop.appendChild(shortcutsCard);
+  rootEl.appendChild(shortcutsBackdrop);
+
+  function showShortcuts() {
+    shortcutsBackdrop.style.display = 'flex';
+  }
+  function dismissShortcuts() {
+    shortcutsBackdrop.style.display = 'none';
+  }
+  shortcutsCloseBtn.addEventListener('click', dismissShortcuts);
+  shortcutsBackdrop.addEventListener('click', dismissShortcuts);
 
   // Set initial position via JS (top/left) so drag can update them
   var BTN_SIZE = 40;
@@ -1219,19 +1293,24 @@ export function buildOverlayScript(port: number): string {
   });
 
   // --- Keyboard handlers ---
+  function isEditingText() {
+    var el = document.activeElement;
+    if (!el) return false;
+    var tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    return !!el.isContentEditable;
+  }
+
   document.addEventListener('keydown', function(e) {
     // Shift+A to toggle
     if (e.shiftKey && e.key === 'A' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      // Don't toggle if focus is in a text input
-      var tag = (document.activeElement || {}).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (isEditingText()) return;
       e.preventDefault();
       setAnnotationMode(!annotationMode);
     }
     // Shift+S to send to AI (or open onboarding modal)
     if (e.shiftKey && e.key === 'S' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      var tag2 = (document.activeElement || {}).tagName;
-      if (tag2 === 'INPUT' || tag2 === 'TEXTAREA' || tag2 === 'SELECT') return;
+      if (isEditingText()) return;
       if (enableSendBtn.style.display !== 'none') {
         e.preventDefault();
         showModal();
@@ -1240,9 +1319,27 @@ export function buildOverlayScript(port: number): string {
         triggerSend();
       }
     }
+    // Shift+D to toggle theme
+    if (e.shiftKey && e.key === 'D' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (isEditingText()) return;
+      e.preventDefault();
+      toggleTheme();
+    }
+    // ? to show shortcuts
+    if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (isEditingText()) return;
+      e.preventDefault();
+      if (shortcutsBackdrop.style.display !== 'none') {
+        dismissShortcuts();
+      } else {
+        showShortcuts();
+      }
+    }
     // Escape: dismiss modal > cancel drag > close popover > exit mode
     if (e.key === 'Escape') {
-      if (modalBackdrop.style.display !== 'none') {
+      if (shortcutsBackdrop.style.display !== 'none') {
+        dismissShortcuts();
+      } else if (modalBackdrop.style.display !== 'none') {
         dismissModal();
       } else if (dragState && dragState.dragging) {
         dragState = null;
