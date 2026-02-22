@@ -191,6 +191,7 @@ export class CDPClient {
   private preferredTargetId: string | null = null;
   private preferredUrlPattern: string | null = null;
   private onConnectCallback: ((client: CDP.Client) => Promise<void>) | null = null;
+  private onNavigateCallback: ((client: CDP.Client) => Promise<void>) | null = null;
 
   readonly consoleLogs: CircularBuffer<ConsoleEntry>;
   readonly networkRequests: CircularBuffer<NetworkEntry>;
@@ -207,6 +208,14 @@ export class CDPClient {
    */
   onConnect(cb: (client: CDP.Client) => Promise<void>): void {
     this.onConnectCallback = cb;
+  }
+
+  /**
+   * Register a callback that fires after page navigations (frameNavigated).
+   * Used to re-inject the annotation overlay after the DOM is replaced.
+   */
+  onNavigate(cb: (client: CDP.Client) => Promise<void>): void {
+    this.onNavigateCallback = cb;
   }
 
   /**
@@ -555,6 +564,14 @@ export class CDPClient {
         timestamp: new Date(params.entry.timestamp).toISOString(),
         level: params.entry.level,
         message: `[browser] ${params.entry.text}`,
+      });
+    });
+
+    // Page load — re-inject overlay after DOM is replaced by navigation/reload
+    client.Page.loadEventFired(() => {
+      if (!this.onNavigateCallback || !this.client) return;
+      this.onNavigateCallback(this.client).catch((err) => {
+        console.error(`[relay-inspect] onNavigate callback error: ${err instanceof Error ? err.message : err}`);
       });
     });
 

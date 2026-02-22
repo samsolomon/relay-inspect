@@ -13,9 +13,9 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
-// --- Auto-inject annotation overlay on every new Chrome connection ---
+// --- Auto-inject annotation overlay ---
 
-cdpClient.onConnect(async (client) => {
+async function injectOverlay(client: CDP.Client): Promise<void> {
   const port = await annotationServer.start();
   const script = buildOverlayScript(port);
   await client.Runtime.evaluate({
@@ -23,8 +23,14 @@ cdpClient.onConnect(async (client) => {
     returnByValue: true,
     awaitPromise: false,
   });
-  console.error("[relay-inspect] Annotation overlay auto-injected.");
-});
+  console.error("[relay-inspect] Annotation overlay injected.");
+}
+
+// Inject on new CDP connection
+cdpClient.onConnect(injectOverlay);
+
+// Re-inject after page navigations (DOM is replaced, injected script is gone)
+cdpClient.onNavigate(injectOverlay);
 
 // --- Screenshot callback for annotation server ---
 
