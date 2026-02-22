@@ -192,6 +192,7 @@ export function buildOverlayScript(port: number): string {
     '.relay-annotate-popover-actions button.primary:hover { background: #6D28D9; }',
     '.relay-annotate-popover-actions button.ghost-icon {',
     '  width: 32px; padding: 0; margin-right: auto; border: none;',
+    '  display: flex; align-items: center; justify-content: center;',
     '  background: transparent; color: var(--relay-text-secondary);',
     '}',
     '.relay-annotate-popover-actions button.ghost-icon:hover { background: var(--relay-btn-hover); color: #f87171; }',
