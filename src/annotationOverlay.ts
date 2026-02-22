@@ -1207,9 +1207,11 @@ export function buildOverlayScript(port: number): string {
         triggerSend();
       }
     }
-    // Escape: cancel drag > close popover > exit mode
+    // Escape: dismiss modal > cancel drag > close popover > exit mode
     if (e.key === 'Escape') {
-      if (dragState && dragState.dragging) {
+      if (modalBackdrop.style.display !== 'none') {
+        dismissModal();
+      } else if (dragState && dragState.dragging) {
         dragState = null;
         selectionRectEl.style.display = 'none';
         clearDragHighlights();
