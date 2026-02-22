@@ -351,8 +351,9 @@ body.dark-bg .gallery-card {
         <th style="padding: 6px 12px 6px 0;">Value</th>
         <th style="padding: 6px 0;">Usage</th>
       </tr>
-      <tr><td style="padding: 6px 12px 6px 0; font-family: monospace; font-size: 12px;">--relay-radius-sm</td><td style="padding: 6px 12px 6px 0;">4px</td><td style="padding: 6px 0; color: #888;">Buttons, tooltips, inputs, small elements</td></tr>
-      <tr><td style="padding: 6px 12px 6px 0; font-family: monospace; font-size: 12px;">--relay-radius-lg</td><td style="padding: 6px 12px 6px 0;">8px</td><td style="padding: 6px 0; color: #888;">Popovers, modals</td></tr>
+      <tr><td style="padding: 6px 12px 6px 0; font-family: monospace; font-size: 12px;">--relay-radius-xs</td><td style="padding: 6px 12px 6px 0;">4px</td><td style="padding: 6px 0; color: #888;">Tooltips, kbd, highlights, code blocks</td></tr>
+      <tr><td style="padding: 6px 12px 6px 0; font-family: monospace; font-size: 12px;">--relay-radius-sm</td><td style="padding: 6px 12px 6px 0;">20px</td><td style="padding: 6px 0; color: #888;">Pill buttons, action buttons</td></tr>
+      <tr><td style="padding: 6px 12px 6px 0; font-family: monospace; font-size: 12px;">--relay-radius-lg</td><td style="padding: 6px 12px 6px 0;">12px</td><td style="padding: 6px 0; color: #888;">Popovers, modals</td></tr>
     </table>
   </div>
 </div>
