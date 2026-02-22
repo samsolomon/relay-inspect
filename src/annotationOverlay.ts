@@ -30,6 +30,7 @@ export function buildOverlayScript(port: number): string {
   var modeBarEl = null;
   var toggleBtn = null;
   var hoveredEl = null;
+  var currentPath = location.pathname;
 
   // --- Styles ---
   var styleEl = document.createElement('style');
@@ -423,10 +424,20 @@ export function buildOverlayScript(port: number): string {
     // Track positions for collision avoidance
     var positions = [];
 
-    annotations.forEach(function(ann) {
+    // Only show annotations for the current page
+    var pageAnnotations = annotations.filter(function(ann) {
+      return ann.url === currentPath;
+    });
+
+    pageAnnotations.forEach(function(ann) {
       var targetEl = null;
       try { targetEl = document.querySelector(ann.selector); } catch(e) { /* invalid selector */ }
       if (!targetEl) return;
+
+      // Skip hidden elements (closed dialogs, display:none modals, etc.)
+      if (typeof targetEl.checkVisibility === 'function') {
+        if (!targetEl.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return;
+      }
 
       var pin = document.createElement('div');
       pin.className = 'relay-annotate-pin' + (ann.status === 'resolved' ? ' resolved' : '');
@@ -468,6 +479,7 @@ export function buildOverlayScript(port: number): string {
 
   // --- Refresh function ---
   function refreshAnnotations() {
+    currentPath = location.pathname;
     fetchAnnotations().then(function(data) {
       annotations = data;
       renderBadges();
@@ -478,6 +490,57 @@ export function buildOverlayScript(port: number): string {
 
   // Expose globally for MCP tools
   window.__relayAnnotateRefresh = refreshAnnotations;
+
+  // --- URL change detection (SPA navigation) ---
+  function onUrlChange() {
+    var newPath = location.pathname;
+    if (newPath !== currentPath) {
+      currentPath = newPath;
+      closePopover();
+      renderBadges();
+    }
+  }
+
+  // Intercept pushState/replaceState for SPA routers
+  var origPushState = history.pushState;
+  history.pushState = function() {
+    origPushState.apply(this, arguments);
+    onUrlChange();
+  };
+  var origReplaceState = history.replaceState;
+  history.replaceState = function() {
+    origReplaceState.apply(this, arguments);
+    onUrlChange();
+  };
+  window.addEventListener('popstate', onUrlChange);
+
+  // --- DOM mutation observer (modals, dialogs, drawers) ---
+  var renderDebounceTimer = null;
+  function debouncedRenderBadges() {
+    if (renderDebounceTimer) return;
+    renderDebounceTimer = setTimeout(function() {
+      renderDebounceTimer = null;
+      renderBadges();
+    }, 150);
+  }
+
+  var observer = new MutationObserver(function(mutations) {
+    // Only re-render if there are annotations to show
+    if (annotations.length === 0) return;
+    // Check if any mutation is relevant (skip our own badge changes)
+    for (var i = 0; i < mutations.length; i++) {
+      var target = mutations[i].target;
+      if (target.nodeType === 1 && target.hasAttribute && target.hasAttribute('data-relay-ignore')) continue;
+      debouncedRenderBadges();
+      return;
+    }
+  });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class', 'style', 'open', 'hidden', 'aria-hidden'],
+  });
 
   // --- Keyboard handlers ---
   document.addEventListener('keydown', function(e) {
