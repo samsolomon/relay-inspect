@@ -22,24 +22,26 @@ export function buildOverlayScript(port: number): string {
 
   // --- Background luminance detection ---
   function detectDarkBackground() {
-    var samples = [document.documentElement, document.body];
-    for (var i = 0; i < samples.length; i++) {
-      if (!samples[i]) continue;
-      var bg = getComputedStyle(samples[i]).backgroundColor;
-      if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') continue;
-      var match = bg.match(/\\d+/g);
-      if (!match || match.length < 3) continue;
-      var r = parseInt(match[0], 10) / 255;
-      var g = parseInt(match[1], 10) / 255;
-      var b = parseInt(match[2], 10) / 255;
-      // sRGB → linear
-      r = r <= 0.03928 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
-      g = g <= 0.03928 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
-      b = b <= 0.03928 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
-      var luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      return luminance < 0.4;
+    // Walk up from the element at the center of the viewport,
+    // checking computed backgroundColor until we find a non-transparent one.
+    var el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+    var maxDepth = 20;
+    while (el && maxDepth-- > 0) {
+      var bg = getComputedStyle(el).backgroundColor;
+      if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') {
+        var match = bg.match(/\\d+/g);
+        if (match && match.length >= 3) {
+          var r = parseInt(match[0], 10);
+          var g = parseInt(match[1], 10);
+          var b = parseInt(match[2], 10);
+          // Simple perceived brightness (0-255)
+          var brightness = (r * 299 + g * 587 + b * 114) / 1000;
+          return brightness < 128;
+        }
+      }
+      el = el.parentElement;
     }
-    return false; // default: assume light site (browser default white)
+    return false; // default: assume light site
   }
 
   var isDarkSite = detectDarkBackground();
