@@ -122,10 +122,6 @@ export function buildOverlayScript(port: number): string {
     '}',
     '.relay-toolbar-btn svg { width: 18px; height: 18px; flex-shrink: 0; }',
     '.relay-toolbar-btn--icon { width: 40px; padding: 0; cursor: grab; }',
-    '.relay-toolbar-btn.active {',
-    '  background: #7C3AED; color: #fff; border-color: rgba(124, 58, 237, 0.5);',
-    '}',
-    '.relay-toolbar-btn.active:hover { background: #6D28D9; }',
     '.relay-toolbar-btn.sent {',
     '  background: #059669; color: #fff; border-color: rgba(5, 150, 105, 0.5);',
     '}',
@@ -200,7 +196,7 @@ export function buildOverlayScript(port: number): string {
     '  user-select: none; line-height: 1;',
     '}',
     '.relay-annotate-selector-info {',
-    '  font-size: 11px; color: var(--relay-text-secondary); margin-bottom: 6px; word-break: break-all;',
+    '  font-size: 11px; color: var(--relay-text-secondary); margin-bottom: 6px;',
     '}',
     '.relay-annotate-hint {',
     '  font-size: 11px; color: var(--relay-text-hint); margin-top: 4px;',
@@ -365,7 +361,7 @@ export function buildOverlayScript(port: number): string {
   toggleBtn.innerHTML = PENCIL_SVG;
   var toggleTooltip = document.createElement('span');
   toggleTooltip.className = 'relay-toolbar-tooltip';
-  toggleTooltip.innerHTML = 'Annotate <kbd>Shift</kbd><kbd>A</kbd>';
+  toggleTooltip.innerHTML = '<kbd>Shift</kbd><kbd>A</kbd>';
   toggleBtn.appendChild(toggleTooltip);
   rootEl.appendChild(toggleBtn);
 
@@ -387,7 +383,7 @@ export function buildOverlayScript(port: number): string {
   sendBtn.appendChild(sendCountBadge);
   var sendTooltip = document.createElement('span');
   sendTooltip.className = 'relay-toolbar-tooltip';
-  sendTooltip.innerHTML = 'Send <kbd>Shift</kbd><kbd>S</kbd>';
+  sendTooltip.innerHTML = '<kbd>Shift</kbd><kbd>S</kbd>';
   sendBtn.appendChild(sendTooltip);
   rootEl.appendChild(sendBtn);
 
@@ -411,8 +407,8 @@ export function buildOverlayScript(port: number): string {
   // --- Toggle annotation mode ---
   function setAnnotationMode(active) {
     annotationMode = active;
-    toggleBtn.classList.toggle('active', active);
     toggleBtn.innerHTML = active ? CLOSE_SVG : PENCIL_SVG;
+    toggleBtn.appendChild(toggleTooltip);
     modeBarEl.classList.toggle('active', active);
     document.documentElement.style.cursor = active ? 'crosshair' : '';
     if (!active) {
@@ -543,13 +539,6 @@ export function buildOverlayScript(port: number): string {
     popover.className = 'relay-annotate-popover';
     popover.setAttribute('data-relay-ignore', 'true');
 
-    var info = document.createElement('div');
-    info.className = 'relay-annotate-selector-info';
-    info.textContent = selectorResult.selector.length > 60
-      ? selectorResult.selector.slice(0, 60) + '...'
-      : selectorResult.selector;
-    popover.appendChild(info);
-
     var textarea = document.createElement('textarea');
     textarea.placeholder = 'Add feedback...';
     popover.appendChild(textarea);
@@ -619,13 +608,6 @@ export function buildOverlayScript(port: number): string {
     var popover = document.createElement('div');
     popover.className = 'relay-annotate-popover';
     popover.setAttribute('data-relay-ignore', 'true');
-
-    var info = document.createElement('div');
-    info.className = 'relay-annotate-selector-info';
-    info.textContent = annotation.selector.length > 60
-      ? annotation.selector.slice(0, 60) + '...'
-      : annotation.selector;
-    popover.appendChild(info);
 
     var textarea = document.createElement('textarea');
     textarea.value = annotation.text;
