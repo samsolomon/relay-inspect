@@ -43,4 +43,49 @@ describe("CircularBuffer", () => {
     buf.push("b");
     expect(buf.peek()).toEqual(["b"]);
   });
+
+  describe("drainWhere", () => {
+    it("drains only matching items", () => {
+      const buf = new CircularBuffer<number>(10);
+      buf.push(1);
+      buf.push(2);
+      buf.push(3);
+      buf.push(4);
+      buf.push(5);
+
+      const evens = buf.drainWhere((n) => n % 2 === 0);
+      expect(evens).toEqual([2, 4]);
+      expect(buf.peek()).toEqual([1, 3, 5]);
+      expect(buf.length).toBe(3);
+    });
+
+    it("returns empty array when nothing matches", () => {
+      const buf = new CircularBuffer<number>(5);
+      buf.push(1);
+      buf.push(3);
+      buf.push(5);
+
+      const evens = buf.drainWhere((n) => n % 2 === 0);
+      expect(evens).toEqual([]);
+      expect(buf.peek()).toEqual([1, 3, 5]);
+    });
+
+    it("drains everything when all items match", () => {
+      const buf = new CircularBuffer<number>(5);
+      buf.push(2);
+      buf.push(4);
+      buf.push(6);
+
+      const evens = buf.drainWhere((n) => n % 2 === 0);
+      expect(evens).toEqual([2, 4, 6]);
+      expect(buf.length).toBe(0);
+    });
+
+    it("returns empty array on empty buffer", () => {
+      const buf = new CircularBuffer<number>(5);
+      const result = buf.drainWhere(() => true);
+      expect(result).toEqual([]);
+      expect(buf.length).toBe(0);
+    });
+  });
 });

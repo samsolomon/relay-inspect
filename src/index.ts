@@ -83,7 +83,7 @@ annotationServer.onSendNotify((count) => {
 
 // --- Helper ---
 
-function connectionError(err: unknown): { content: [{ type: "text"; text: string }] } {
+function connectionError(err: unknown) {
   const message = err instanceof Error ? err.message : String(err);
   const autoLaunch = isAutoLaunchEnabled();
   return withAnnotationCount({
@@ -96,27 +96,57 @@ function connectionError(err: unknown): { content: [{ type: "text"; text: string
           : `Auto-launch is disabled (CHROME_AUTO_LAUNCH=false). Launch Chrome with --remote-debugging-port=${config.port}, or enable auto-launch.`,
       }, null, 2),
     }],
+    isError: true,
   });
 }
 
 // --- Passive annotation count wrapper ---
 
 function withAnnotationCount(
-  result: { content: Array<{ type: string; text?: string }> },
+  result: { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; isError?: boolean },
 ) {
   const port = getAnnotationPort();
   if (port === null) return result;
 
-  const openCount = annotationServer
+  const openAnnotations = annotationServer
     .getAnnotations()
-    .filter((a) => a.status === "open").length;
-  if (openCount === 0) return result;
+    .filter((a) => a.status === "open");
+  if (openAnnotations.length === 0) return result;
 
+  // Check if the user clicked "Send to AI" — deliver full annotations inline
+  if (annotationServer.consumeSentState()) {
+    const annotationBlocks = formatAnnotations(openAnnotations);
+    result.content.push(...annotationBlocks);
+
+    // Fire-and-forget auto-resolve: remove badges + delete annotations
+    (async () => {
+      try {
+        const client = await cdpClient.ensureConnected();
+        const safeIds = openAnnotations.map((a) => a.id.replace(/[^a-f0-9-]/gi, ""));
+        await client.Runtime.evaluate({
+          expression: `(function() {
+            ${safeIds.map((id) => `var p = document.querySelector('[data-relay-annotation-id="${id}"]'); if (p) p.remove();`).join("\n")}
+            if (typeof window.__relayAnnotateRefresh === 'function') window.__relayAnnotateRefresh();
+            return true;
+          })()`,
+          returnByValue: true,
+          awaitPromise: false,
+        });
+      } catch { /* best-effort */ }
+      for (const a of openAnnotations) {
+        annotationServer.deleteAnnotation(a.id);
+      }
+    })();
+
+    return result;
+  }
+
+  // Otherwise just append the pending count
   for (const block of result.content) {
     if (block.type === "text" && block.text) {
       try {
         const parsed = JSON.parse(block.text);
-        parsed.pending_annotations = openCount;
+        parsed.pending_annotations = openAnnotations.length;
         block.text = JSON.stringify(parsed, null, 2);
         break;
       } catch {
@@ -222,6 +252,7 @@ server.tool(
           type: "text",
           text: JSON.stringify({ error: "Provide either id or urlPattern/url_pattern, not both." }, null, 2),
         }],
+        isError: true,
       });
     }
 
@@ -231,6 +262,7 @@ server.tool(
           type: "text",
           text: JSON.stringify({ error: "Provide id or urlPattern/url_pattern." }, null, 2),
         }],
+        isError: true,
       });
     }
 
@@ -259,6 +291,7 @@ server.tool(
       const message = err instanceof Error ? err.message : String(err);
       return withAnnotationCount({
         content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+        isError: true,
       });
     }
   },
@@ -295,6 +328,7 @@ server.tool(
             type: "text",
             text: JSON.stringify({ error: text }, null, 2),
           }],
+          isError: true,
         });
       }
 
@@ -308,6 +342,7 @@ server.tool(
       const message = err instanceof Error ? err.message : String(err);
       return withAnnotationCount({
         content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+        isError: true,
       });
     }
   },
@@ -368,12 +403,13 @@ server.tool(
       return connectionError(err);
     }
 
-    let entries = clear
-      ? cdpClient.networkRequests.drain()
-      : cdpClient.networkRequests.peek();
-
+    let entries;
     if (filter) {
-      entries = entries.filter((e) => e.url.includes(filter));
+      entries = clear
+        ? cdpClient.networkRequests.drainWhere((e) => e.url.includes(filter))
+        : cdpClient.networkRequests.peek().filter((e) => e.url.includes(filter));
+    } else {
+      entries = clear ? cdpClient.networkRequests.drain() : cdpClient.networkRequests.peek();
     }
 
     return withAnnotationCount({
@@ -453,6 +489,7 @@ server.tool(
       const message = err instanceof Error ? err.message : String(err);
       return withAnnotationCount({
         content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+        isError: true,
       });
     }
   },
@@ -546,6 +583,7 @@ server.tool(
       const message = err instanceof Error ? err.message : String(err);
       return {
         content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+        isError: true,
       };
     }
   },
@@ -584,6 +622,74 @@ server.tool(
       const message = err instanceof Error ? err.message : String(err);
       return withAnnotationCount({
         content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+        isError: true,
+      });
+    }
+  },
+);
+
+// --- Tool: navigate_to ---
+
+server.tool(
+  "navigate_to",
+  "Navigate the current page to a new URL",
+  {
+    url: z.string().describe("The URL to navigate to"),
+  },
+  async ({ url }) => {
+    // Validate URL scheme
+    try {
+      const parsed = new URL(url);
+      if (!["http:", "https:", "file:"].includes(parsed.protocol)) {
+        return withAnnotationCount({
+          content: [{
+            type: "text",
+            text: JSON.stringify({ error: `Unsupported URL scheme: ${parsed.protocol}. Only http, https, and file are allowed.` }, null, 2),
+          }],
+          isError: true,
+        });
+      }
+    } catch {
+      return withAnnotationCount({
+        content: [{
+          type: "text",
+          text: JSON.stringify({ error: `Invalid URL: ${url}` }, null, 2),
+        }],
+        isError: true,
+      });
+    }
+
+    let client: CDP.Client;
+    try {
+      client = await cdpClient.ensureConnected();
+    } catch (err) {
+      return connectionError(err);
+    }
+
+    try {
+      const result = await client.Page.navigate({ url });
+
+      if (result.errorText) {
+        return withAnnotationCount({
+          content: [{
+            type: "text",
+            text: JSON.stringify({ error: `Navigation failed: ${result.errorText}`, url }, null, 2),
+          }],
+          isError: true,
+        });
+      }
+
+      return withAnnotationCount({
+        content: [{
+          type: "text",
+          text: JSON.stringify({ success: true, url, frameId: result.frameId }, null, 2),
+        }],
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return withAnnotationCount({
+        content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+        isError: true,
       });
     }
   },
@@ -712,6 +818,7 @@ server.tool(
             type: "text",
             text: JSON.stringify({ ...result, connect_error: message }, null, 2),
           }],
+          isError: true,
         });
       }
     }
@@ -788,6 +895,7 @@ server.tool(
       const message = err instanceof Error ? err.message : String(err);
       return {
         content: [{ type: "text", text: JSON.stringify({ error: `Annotation server failed to start: ${message}` }, null, 2) }],
+        isError: true,
       };
     }
 
@@ -812,6 +920,7 @@ server.tool(
           ?? "Unknown error";
         return {
           content: [{ type: "text", text: JSON.stringify({ error: `Overlay injection failed: ${text}` }, null, 2) }],
+          isError: true,
         };
       }
 
@@ -830,6 +939,7 @@ server.tool(
       const message = err instanceof Error ? err.message : String(err);
       return {
         content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+        isError: true,
       };
     }
   },
@@ -887,6 +997,7 @@ server.tool(
             error: "Annotation server is not running. It starts automatically when Chrome connects — try any browser tool first to trigger a connection.",
           }, null, 2),
         }],
+        isError: true,
       };
     }
 
@@ -926,6 +1037,7 @@ server.tool(
             error: "Annotation server is not running. It starts automatically when Chrome connects — try any browser tool first to trigger a connection.",
           }, null, 2),
         }],
+        isError: true,
       };
     }
 
@@ -936,6 +1048,7 @@ server.tool(
           type: "text",
           text: JSON.stringify({ error: `Annotation "${id}" not found.` }, null, 2),
         }],
+        isError: true,
       };
     }
 
@@ -995,6 +1108,7 @@ server.tool(
             error: "Annotation server is not running. It starts automatically when Chrome connects — try any browser tool first to trigger a connection.",
           }, null, 2),
         }],
+        isError: true,
       };
     }
 

@@ -28,21 +28,40 @@ export interface Annotation {
 
 // --- Helpers ---
 
-function corsHeaders(): Record<string, string> {
+export function isAllowedOrigin(origin: string | undefined): string | null {
+  if (!origin) return null;
+  try {
+    const parsed = new URL(origin);
+    if (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]")
+    ) {
+      return origin;
+    }
+  } catch { /* invalid URL */ }
+  return null;
+}
+
+function corsHeaders(req?: IncomingMessage): Record<string, string> {
+  const origin = req?.headers.origin;
+  const allowed = isAllowedOrigin(origin) ?? "http://127.0.0.1";
   return {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": allowed,
     "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
+    "Vary": "Origin",
   };
 }
 
-function jsonResponse(res: ServerResponse, status: number, body: unknown): void {
+function jsonResponse(res: ServerResponse, status: number, body: unknown, req?: IncomingMessage): void {
   const data = JSON.stringify(body);
-  res.writeHead(status, { ...corsHeaders(), "Content-Type": "application/json" });
+  res.writeHead(status, { ...corsHeaders(req), "Content-Type": "application/json" });
   res.end(data);
 }
 
 const MAX_BODY_BYTES = 64 * 1024; // 64KB
+const MAX_TEXT_LENGTH = 10 * 1024; // 10KB
+const MAX_VIEWPORT_DIM = 100_000;
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -75,6 +94,7 @@ export class AnnotationServer {
   private sendCanceller: (() => void) | null = null;
   private sendLatched = false;
   private sendNotifyCallback: ((count: number) => void) | null = null;
+  private sentTriggered = false;
 
   /**
    * Register a callback to capture element screenshots via CDP.
@@ -89,6 +109,14 @@ export class AnnotationServer {
    */
   onSendNotify(cb: (count: number) => void): void {
     this.sendNotifyCallback = cb;
+  }
+
+  consumeSentState(): boolean {
+    if (this.sentTriggered) {
+      this.sentTriggered = false;
+      return true;
+    }
+    return false;
   }
 
   waitForSend(timeoutMs: number): Promise<{ triggered: boolean }> {
@@ -214,7 +242,7 @@ export class AnnotationServer {
 
       // CORS preflight
       if (method === "OPTIONS") {
-        res.writeHead(204, corsHeaders());
+        res.writeHead(204, corsHeaders(req));
         res.end();
         return;
       }
@@ -225,7 +253,7 @@ export class AnnotationServer {
           status: "ok",
           count: this.annotations.size,
           port: this.port,
-        });
+        }, req);
         return;
       }
 
@@ -236,12 +264,13 @@ export class AnnotationServer {
         } else {
           this.sendLatched = true;
         }
+        this.sentTriggered = true;
         // Notify agent via MCP logging
         if (this.sendNotifyCallback) {
           const openCount = Array.from(this.annotations.values()).filter((a) => a.status === "open").length;
           this.sendNotifyCallback(openCount);
         }
-        jsonResponse(res, 200, { success: true });
+        jsonResponse(res, 200, { success: true }, req);
         return;
       }
 
@@ -250,7 +279,25 @@ export class AnnotationServer {
         const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
         const now = new Date().toISOString();
 
+        // Input validation
+        const text = String(body.text ?? "");
+        if (text.length > MAX_TEXT_LENGTH) {
+          jsonResponse(res, 400, { error: `Text exceeds maximum length of ${MAX_TEXT_LENGTH} characters` }, req);
+          return;
+        }
+        if (typeof body.url !== "undefined" && typeof body.url !== "string") {
+          jsonResponse(res, 400, { error: "url must be a string" }, req);
+          return;
+        }
+
         const viewport = body.viewport as { width?: number; height?: number } | undefined;
+        const vw = Number(viewport?.width ?? 0);
+        const vh = Number(viewport?.height ?? 0);
+        if (!Number.isFinite(vw) || !Number.isFinite(vh) || vw < 0 || vh < 0 || vw > MAX_VIEWPORT_DIM || vh > MAX_VIEWPORT_DIM) {
+          jsonResponse(res, 400, { error: "Invalid viewport dimensions" }, req);
+          return;
+        }
+
         const reactSource = body.reactSource as { component?: string; source?: string } | undefined;
         const elementRect = body.elementRect as { x?: number; y?: number; width?: number; height?: number } | undefined;
 
@@ -275,12 +322,9 @@ export class AnnotationServer {
           url: String(body.url ?? ""),
           selector: String(body.selector ?? ""),
           selectorConfidence: body.selectorConfidence === "stable" ? "stable" : "fragile",
-          text: String(body.text ?? ""),
+          text,
           status: "open",
-          viewport: {
-            width: Number(viewport?.width ?? 0),
-            height: Number(viewport?.height ?? 0),
-          },
+          viewport: { width: vw, height: vh },
           reactSource: reactSource?.component
             ? { component: String(reactSource.component), source: reactSource.source ? String(reactSource.source) : undefined }
             : null,
@@ -316,13 +360,13 @@ export class AnnotationServer {
         }
 
         this.annotations.set(annotation.id, annotation);
-        jsonResponse(res, 201, { id: annotation.id });
+        jsonResponse(res, 201, { id: annotation.id }, req);
         return;
       }
 
       // GET /annotations — list all
       if (method === "GET" && path === "/annotations") {
-        jsonResponse(res, 200, Array.from(this.annotations.values()));
+        jsonResponse(res, 200, Array.from(this.annotations.values()), req);
         return;
       }
 
@@ -336,10 +380,10 @@ export class AnnotationServer {
         if (method === "POST" && isResolve) {
           const ann = this.resolveAnnotation(id);
           if (!ann) {
-            jsonResponse(res, 404, { error: "Annotation not found" });
+            jsonResponse(res, 404, { error: "Annotation not found" }, req);
             return;
           }
-          jsonResponse(res, 200, ann);
+          jsonResponse(res, 200, ann, req);
           return;
         }
 
@@ -347,15 +391,19 @@ export class AnnotationServer {
         if (method === "PATCH" && !isResolve) {
           const ann = this.annotations.get(id);
           if (!ann) {
-            jsonResponse(res, 404, { error: "Annotation not found" });
+            jsonResponse(res, 404, { error: "Annotation not found" }, req);
             return;
           }
           const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
           if (typeof body.text === "string") {
+            if (body.text.length > MAX_TEXT_LENGTH) {
+              jsonResponse(res, 400, { error: `Text exceeds maximum length of ${MAX_TEXT_LENGTH} characters` }, req);
+              return;
+            }
             ann.text = body.text;
           }
           ann.updatedAt = new Date().toISOString();
-          jsonResponse(res, 200, ann);
+          jsonResponse(res, 200, ann, req);
           return;
         }
 
@@ -363,19 +411,19 @@ export class AnnotationServer {
         if (method === "DELETE" && !isResolve) {
           const deleted = this.annotations.delete(id);
           if (!deleted) {
-            jsonResponse(res, 404, { error: "Annotation not found" });
+            jsonResponse(res, 404, { error: "Annotation not found" }, req);
             return;
           }
-          jsonResponse(res, 200, { success: true });
+          jsonResponse(res, 200, { success: true }, req);
           return;
         }
       }
 
       // 404
-      jsonResponse(res, 404, { error: "Not found" });
+      jsonResponse(res, 404, { error: "Not found" }, req);
     } catch (err) {
       console.error("[relay-inspect] Annotation server error:", err);
-      jsonResponse(res, 500, { error: "Internal server error" });
+      jsonResponse(res, 500, { error: "Internal server error" }, req);
     }
   }
 }

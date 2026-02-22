@@ -103,6 +103,16 @@ export class CircularBuffer<T> {
     return items;
   }
 
+  drainWhere(predicate: (item: T) => boolean): T[] {
+    const matched: T[] = [];
+    const remaining: T[] = [];
+    for (const item of this.buffer) {
+      (predicate(item) ? matched : remaining).push(item);
+    }
+    this.buffer = remaining;
+    return matched;
+  }
+
   peek(): T[] {
     return [...this.buffer];
   }
@@ -184,6 +194,10 @@ function isProcessChrome(pid: number): boolean {
 
 // --- CDP Client ---
 
+const LIVENESS_CHECK_INTERVAL_MS = 30_000;
+const PENDING_REQUEST_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const PENDING_REQUEST_CLEANUP_INTERVAL_MS = 60_000;
+
 export class CDPClient {
   private client: CDP.Client | null = null;
   private connectingPromise: Promise<CDP.Client> | null = null;
@@ -192,6 +206,9 @@ export class CDPClient {
   private preferredUrlPattern: string | null = null;
   private onConnectCallback: ((client: CDP.Client) => Promise<void>) | null = null;
   private onNavigateCallback: ((client: CDP.Client) => Promise<void>) | null = null;
+  private lastSuccessfulCall = 0;
+  private orphanCleanupDone = false;
+  private pendingRequestCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   readonly consoleLogs: CircularBuffer<ConsoleEntry>;
   readonly networkRequests: CircularBuffer<NetworkEntry>;
@@ -223,12 +240,18 @@ export class CDPClient {
    * Throws if Chrome is unreachable after retries.
    */
   async ensureConnected(): Promise<CDP.Client> {
-    // Fast path: existing connection is alive
+    // Fast path: existing connection with recent successful call — skip liveness check
     if (this.client) {
-      if (await this.isAlive(this.client)) {
+      const elapsed = Date.now() - this.lastSuccessfulCall;
+      if (elapsed < LIVENESS_CHECK_INTERVAL_MS) {
         return this.client;
       }
-      // Stale connection — clean up before reconnecting
+      // Stale — verify with a liveness check
+      if (await this.isAlive(this.client)) {
+        this.lastSuccessfulCall = Date.now();
+        return this.client;
+      }
+      // Dead connection — clean up before reconnecting
       console.error("[relay-inspect] Stale connection detected, reconnecting...");
       this.cleanup();
     }
@@ -266,17 +289,29 @@ export class CDPClient {
     }
   }
 
+  private clearPendingRequestTimer(): void {
+    if (this.pendingRequestCleanupTimer) {
+      clearInterval(this.pendingRequestCleanupTimer);
+      this.pendingRequestCleanupTimer = null;
+    }
+  }
+
   private cleanup(): void {
     if (this.client) {
       try { this.client.close(); } catch { /* already closed */ }
       this.client = null;
     }
+    this.lastSuccessfulCall = 0;
     this.pendingRequests.clear();
+    this.clearPendingRequestTimer();
   }
 
   private async connect(): Promise<CDP.Client> {
-    // Clean up any orphaned Chrome from a previous MCP that was killed
-    await this.cleanupOrphanedChrome();
+    // Clean up any orphaned Chrome from a previous MCP that was killed (once per session)
+    if (!this.orphanCleanupDone) {
+      this.orphanCleanupDone = true;
+      await this.cleanupOrphanedChrome();
+    }
 
     // Fast path: try connecting to an already-running Chrome
     try {
@@ -509,6 +544,7 @@ export class CDPClient {
   }
 
   async shutdown(): Promise<void> {
+    this.clearPendingRequestTimer();
     this.cleanup();
 
     if (this.launchedProcess?.pid) {
@@ -535,10 +571,31 @@ export class CDPClient {
       client.Log.enable(),
     ]);
 
+    this.lastSuccessfulCall = Date.now();
     console.error("[relay-inspect] CDP domains enabled: Runtime, Network, DOM, Page, Log");
   }
 
+  private cleanupStalePendingRequests(): void {
+    const now = Date.now();
+    for (const [id, req] of this.pendingRequests) {
+      const age = now - new Date(req.timestamp).getTime();
+      if (age > PENDING_REQUEST_TTL_MS) {
+        console.error(`[relay-inspect] Evicting stale pending request: ${req.method} ${req.url}`);
+        this.pendingRequests.delete(id);
+      }
+    }
+  }
+
   private attachEventHandlers(client: CDP.Client): void {
+    // Periodic cleanup of stale pending requests (SSE, WebSocket, long-polls)
+    if (this.pendingRequestCleanupTimer) {
+      clearInterval(this.pendingRequestCleanupTimer);
+    }
+    this.pendingRequestCleanupTimer = setInterval(
+      () => this.cleanupStalePendingRequests(),
+      PENDING_REQUEST_CLEANUP_INTERVAL_MS,
+    );
+
     // Console API calls (console.log, console.warn, console.error, etc.)
     client.Runtime.consoleAPICalled((params) => {
       const message = params.args
@@ -631,7 +688,9 @@ export class CDPClient {
     client.on("disconnect", () => {
       console.error("[relay-inspect] Chrome disconnected.");
       this.client = null;
+      this.lastSuccessfulCall = 0;
       this.pendingRequests.clear();
+      this.clearPendingRequestTimer();
       // No auto-reconnect — next ensureConnected() call will reconnect lazily
     });
   }
