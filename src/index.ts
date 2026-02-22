@@ -777,6 +777,42 @@ server.tool(
   },
 );
 
+// --- Annotation formatting helper (shared by list_annotations and wait_for_send) ---
+
+type AnnotationContentBlock = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+
+function formatAnnotations(items: ReturnType<typeof annotationServer.getAnnotations>): AnnotationContentBlock[] {
+  const content: AnnotationContentBlock[] = [];
+
+  content.push({ type: "text", text: `${items.length} annotation(s):` });
+
+  for (let i = 0; i < items.length; i++) {
+    const a = items[i];
+    const num = i + 1;
+    const conf = a.selectorConfidence === "stable" ? "stable" : "fragile";
+    const lines = [
+      `#${num} [${a.status.toUpperCase()}] id: ${a.id}`,
+      `   Page: ${a.url}`,
+      `   Selector (${conf}): ${a.selector}`,
+      a.reactSource
+        ? `   Component: ${a.reactSource.component}${a.reactSource.source ? ` (${a.reactSource.source})` : ""}`
+        : null,
+      `   Viewport: ${a.viewport.width}x${a.viewport.height}`,
+      `   Feedback: ${a.text}`,
+      `   Created: ${a.createdAt}`,
+    ].filter(Boolean).join("\n");
+
+    content.push({ type: "text", text: lines });
+
+    if (a.screenshot) {
+      const base64 = a.screenshot.replace(/^data:image\/\w+;base64,/, "");
+      content.push({ type: "image", data: base64, mimeType: "image/png" });
+    }
+  }
+
+  return content;
+}
+
 // --- Tool: list_annotations ---
 
 server.tool(
@@ -810,35 +846,7 @@ server.tool(
       };
     }
 
-    const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
-
-    content.push({ type: "text", text: `${items.length} annotation(s):` });
-
-    for (let i = 0; i < items.length; i++) {
-      const a = items[i];
-      const num = i + 1;
-      const conf = a.selectorConfidence === "stable" ? "stable" : "fragile";
-      const lines = [
-        `#${num} [${a.status.toUpperCase()}] id: ${a.id}`,
-        `   Page: ${a.url}`,
-        `   Selector (${conf}): ${a.selector}`,
-        a.reactSource
-          ? `   Component: ${a.reactSource.component}${a.reactSource.source ? ` (${a.reactSource.source})` : ""}`
-          : null,
-        `   Viewport: ${a.viewport.width}x${a.viewport.height}`,
-        `   Feedback: ${a.text}`,
-        `   Created: ${a.createdAt}`,
-      ].filter(Boolean).join("\n");
-
-      content.push({ type: "text", text: lines });
-
-      if (a.screenshot) {
-        const base64 = a.screenshot.replace(/^data:image\/\w+;base64,/, "");
-        content.push({ type: "image", data: base64, mimeType: "image/png" });
-      }
-    }
-
-    return { content };
+    return { content: formatAnnotations(items) };
   },
 );
 
@@ -902,6 +910,59 @@ server.tool(
         }, null, 2),
       }],
     };
+  },
+);
+
+// --- Tool: wait_for_send ---
+
+server.tool(
+  "wait_for_send",
+  "Long-poll until the user clicks 'Send to AI' in the browser overlay, then return all open annotations",
+  {
+    timeout: z
+      .number()
+      .min(1)
+      .max(300)
+      .optional()
+      .default(30)
+      .describe("Max seconds to wait (default 30, max 300)"),
+  },
+  async ({ timeout }) => {
+    const port = getAnnotationPort();
+    if (port === null) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            error: "Annotation server is not running. It starts automatically when Chrome connects — try any browser tool first to trigger a connection.",
+          }, null, 2),
+        }],
+      };
+    }
+
+    const result = await annotationServer.waitForSend(timeout * 1000);
+
+    if (!result.triggered) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ timeout: true, waited_seconds: timeout }, null, 2),
+        }],
+      };
+    }
+
+    const items = annotationServer.getAnnotations().filter((a) => a.status === "open");
+
+    if (items.length === 0) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ sent: true, count: 0, message: "No open annotations." }, null, 2),
+        }],
+      };
+    }
+
+    return { content: formatAnnotations(items) };
   },
 );
 

@@ -71,12 +71,42 @@ export class AnnotationServer {
   private port: number | null = null;
   private annotations = new Map<string, Annotation>();
   private screenshotCallback: ScreenshotCallback | null = null;
+  private sendResolver: (() => void) | null = null;
+  private sendLatched = false;
 
   /**
    * Register a callback to capture element screenshots via CDP.
    */
   onScreenshot(cb: ScreenshotCallback): void {
     this.screenshotCallback = cb;
+  }
+
+  waitForSend(timeoutMs: number): Promise<{ triggered: boolean }> {
+    // If latched from a previous Send click, consume it immediately
+    if (this.sendLatched) {
+      this.sendLatched = false;
+      return Promise.resolve({ triggered: true });
+    }
+
+    // Cancel any existing waiter (e.g. agent retried after timeout)
+    if (this.sendResolver) {
+      this.sendResolver();
+    }
+
+    return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+
+      this.sendResolver = () => {
+        this.sendResolver = null;
+        if (timer) clearTimeout(timer);
+        resolve({ triggered: true });
+      };
+
+      timer = setTimeout(() => {
+        this.sendResolver = null;
+        resolve({ triggered: false });
+      }, timeoutMs);
+    });
   }
 
   async start(): Promise<number> {
@@ -176,6 +206,17 @@ export class AnnotationServer {
           count: this.annotations.size,
           port: this.port,
         });
+        return;
+      }
+
+      // POST /annotations/send — trigger the long-poll resolver
+      if (method === "POST" && path === "/annotations/send") {
+        if (this.sendResolver) {
+          this.sendResolver();
+        } else {
+          this.sendLatched = true;
+        }
+        jsonResponse(res, 200, { success: true });
         return;
       }
 

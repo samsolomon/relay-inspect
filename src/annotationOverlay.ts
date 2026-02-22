@@ -67,6 +67,7 @@ export function buildOverlayScript(port: number): string {
   var selectionRectEl = null;
   var dragHighlighted = []; // elements with .relay-annotate-drag-match
   var dragHighlightTimer = null;
+  var sentUntil = 0; // timestamp — don't reset sent state until this expires
 
   // --- Styles ---
   var styleEl = document.createElement('style');
@@ -187,12 +188,32 @@ export function buildOverlayScript(port: number): string {
     '  outline: 2px solid #7C3AED !important; outline-offset: -1px;',
     '  background-color: rgba(124, 58, 237, 0.08) !important;',
     '}',
+    '.relay-annotate-send-btn {',
+    '  position: fixed; height: 40px; border-radius: 20px; border: 1px solid var(--relay-border);',
+    '  cursor: pointer; z-index: 999997; display: none; align-items: center; gap: 6px;',
+    '  padding: 0 14px 0 12px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
+    '  font-size: 13px; font-weight: 500; white-space: nowrap; touch-action: none;',
+    '  box-shadow: 0 2px 12px var(--relay-shadow); transition: background 0.15s, border-color 0.15s;',
+    '  background: #7C3AED; color: #fff; border-color: rgba(124, 58, 237, 0.5);',
+    '}',
+    '.relay-annotate-send-btn:hover { background: #6D28D9; }',
+    '.relay-annotate-send-btn.sent {',
+    '  background: #059669; border-color: rgba(5, 150, 105, 0.5); pointer-events: none;',
+    '}',
+    '.relay-annotate-send-btn svg { width: 16px; height: 16px; flex-shrink: 0; }',
+    '.relay-send-count {',
+    '  display: inline-flex; align-items: center; justify-content: center;',
+    '  min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px;',
+    '  background: rgba(255,255,255,0.25); font-size: 11px; font-weight: 700; line-height: 1;',
+    '}',
   ].join('\\n');
   document.head.appendChild(styleEl);
 
   // --- Pencil SVG / Close SVG ---
   var PENCIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>';
   var CLOSE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  var SEND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg>';
+  var CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 
   // --- Selector generator ---
   var MAX_SELECTOR_DEPTH = 10;
@@ -332,11 +353,40 @@ export function buildOverlayScript(port: number): string {
   toggleBtn.innerHTML = PENCIL_SVG;
   rootEl.appendChild(toggleBtn);
 
+  // Send to AI button
+  var sendBtn = document.createElement('button');
+  sendBtn.className = 'relay-annotate-send-btn';
+  sendBtn.setAttribute('data-relay-ignore', 'true');
+  sendBtn.setAttribute('title', 'Send annotations to AI (Shift+S)');
+  var sendIconSpan = document.createElement('span');
+  sendIconSpan.innerHTML = SEND_SVG;
+  sendIconSpan.style.display = 'flex';
+  sendBtn.appendChild(sendIconSpan);
+  var sendLabel = document.createElement('span');
+  sendLabel.textContent = 'Send';
+  sendBtn.appendChild(sendLabel);
+  var sendCountBadge = document.createElement('span');
+  sendCountBadge.className = 'relay-send-count';
+  sendCountBadge.textContent = '0';
+  sendBtn.appendChild(sendCountBadge);
+  rootEl.appendChild(sendBtn);
+
   // Set initial position via JS (top/left) so drag can update them
   var BTN_SIZE = 40;
   var BTN_MARGIN = 8;
   toggleBtn.style.top = (window.innerHeight - BTN_SIZE - BTN_MARGIN) + 'px';
   toggleBtn.style.left = (window.innerWidth - BTN_SIZE - BTN_MARGIN) + 'px';
+
+  // --- Position send button relative to toggle button ---
+  function positionSendBtn() {
+    var toggleLeft = parseFloat(toggleBtn.style.left) || 0;
+    var toggleTop = parseFloat(toggleBtn.style.top) || 0;
+    var sendWidth = sendBtn.offsetWidth || 100;
+    var left = toggleLeft - sendWidth - 8;
+    if (left < BTN_MARGIN) left = toggleLeft + BTN_SIZE + 8;
+    sendBtn.style.left = left + 'px';
+    sendBtn.style.top = toggleTop + 'px';
+  }
 
   // --- Toggle annotation mode ---
   function setAnnotationMode(active) {
@@ -388,6 +438,7 @@ export function buildOverlayScript(port: number): string {
       newTop = Math.max(BTN_MARGIN, Math.min(newTop, window.innerHeight - BTN_SIZE - BTN_MARGIN));
       toggleBtn.style.left = newLeft + 'px';
       toggleBtn.style.top = newTop + 'px';
+      positionSendBtn();
     }
   });
 
@@ -408,6 +459,7 @@ export function buildOverlayScript(port: number): string {
     var top = parseFloat(toggleBtn.style.top) || 0;
     toggleBtn.style.left = Math.max(BTN_MARGIN, Math.min(left, window.innerWidth - BTN_SIZE - BTN_MARGIN)) + 'px';
     toggleBtn.style.top = Math.max(BTN_MARGIN, Math.min(top, window.innerHeight - BTN_SIZE - BTN_MARGIN)) + 'px';
+    positionSendBtn();
   });
 
   // --- Highlight on hover (used when not dragging) ---
@@ -926,7 +978,51 @@ export function buildOverlayScript(port: number): string {
       rootEl.appendChild(pin);
       badgeElements.push(pin);
     });
+
+    // Update Send button visibility and count
+    var openCount = annotations.filter(function(a) { return a.status === 'open'; }).length;
+    if (openCount > 0) {
+      sendBtn.style.display = 'flex';
+      sendCountBadge.textContent = String(openCount);
+      // Only reset sent state after the animation window expires
+      if (Date.now() >= sentUntil) {
+        sendBtn.classList.remove('sent');
+        sendIconSpan.innerHTML = SEND_SVG;
+        sendLabel.textContent = 'Send';
+        sendBtn.style.pointerEvents = '';
+      }
+      positionSendBtn();
+    } else {
+      sendBtn.style.display = 'none';
+    }
   }
+
+  // --- Send to AI click handler ---
+  function triggerSend() {
+    if (sendBtn.classList.contains('sent')) return;
+    sentUntil = Date.now() + 3000;
+    sendBtn.classList.add('sent');
+    sendIconSpan.innerHTML = CHECK_SVG;
+    sendLabel.textContent = 'Sent!';
+    sendBtn.style.pointerEvents = 'none';
+    fetch(API + '/annotations/send', { method: 'POST' }).catch(function(err) {
+      console.error('Send to AI failed:', err);
+    });
+    // Revert after 3s if there are still open annotations
+    setTimeout(function() {
+      var openCount = annotations.filter(function(a) { return a.status === 'open'; }).length;
+      if (openCount > 0) {
+        sendBtn.classList.remove('sent');
+        sendIconSpan.innerHTML = SEND_SVG;
+        sendLabel.textContent = 'Send';
+        sendBtn.style.pointerEvents = '';
+      }
+    }, 3000);
+  }
+  sendBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    triggerSend();
+  });
 
   // --- Refresh function ---
   function refreshAnnotations() {
@@ -1002,6 +1098,15 @@ export function buildOverlayScript(port: number): string {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       e.preventDefault();
       setAnnotationMode(!annotationMode);
+    }
+    // Shift+S to send to AI
+    if (e.shiftKey && e.key === 'S' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      var tag2 = (document.activeElement || {}).tagName;
+      if (tag2 === 'INPUT' || tag2 === 'TEXTAREA' || tag2 === 'SELECT') return;
+      if (sendBtn.style.display !== 'none') {
+        e.preventDefault();
+        triggerSend();
+      }
     }
     // Escape: cancel drag > close popover > exit mode
     if (e.key === 'Escape') {
