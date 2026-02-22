@@ -8,9 +8,11 @@ export interface Annotation {
   url: string;
   selector: string;
   selectorConfidence: "stable" | "fragile";
-  elementSnapshot: string;
   text: string;
   status: "open" | "resolved";
+  viewport: { width: number; height: number };
+  reactSource: { component: string; source?: string } | null;
+  screenshot: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -53,10 +55,20 @@ function readBody(req: IncomingMessage): Promise<string> {
 
 // --- Annotation Server ---
 
+export type ScreenshotCallback = (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>;
+
 export class AnnotationServer {
   private server: ReturnType<typeof createServer> | null = null;
   private port: number | null = null;
   private annotations = new Map<string, Annotation>();
+  private screenshotCallback: ScreenshotCallback | null = null;
+
+  /**
+   * Register a callback to capture element screenshots via CDP.
+   */
+  onScreenshot(cb: ScreenshotCallback): void {
+    this.screenshotCallback = cb;
+  }
 
   async start(): Promise<number> {
     if (this.server) {
@@ -158,14 +170,42 @@ export class AnnotationServer {
       if (method === "POST" && path === "/annotations") {
         const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
         const now = new Date().toISOString();
+
+        const viewport = body.viewport as { width?: number; height?: number } | undefined;
+        const reactSource = body.reactSource as { component?: string; source?: string } | undefined;
+        const elementRect = body.elementRect as { x?: number; y?: number; width?: number; height?: number } | undefined;
+
+        // Capture screenshot via CDP if we have a valid rect and a callback
+        let screenshot: string | null = null;
+        if (elementRect && this.screenshotCallback
+          && Number(elementRect.width ?? 0) > 0 && Number(elementRect.height ?? 0) > 0) {
+          try {
+            screenshot = await this.screenshotCallback({
+              x: Number(elementRect.x ?? 0),
+              y: Number(elementRect.y ?? 0),
+              width: Number(elementRect.width ?? 0),
+              height: Number(elementRect.height ?? 0),
+            });
+          } catch (err) {
+            console.error(`[relay-inspect] Screenshot capture failed: ${err instanceof Error ? err.message : err}`);
+          }
+        }
+
         const annotation: Annotation = {
           id: randomUUID(),
           url: String(body.url ?? ""),
           selector: String(body.selector ?? ""),
           selectorConfidence: body.selectorConfidence === "stable" ? "stable" : "fragile",
-          elementSnapshot: String(body.elementSnapshot ?? "").slice(0, 500),
           text: String(body.text ?? ""),
           status: "open",
+          viewport: {
+            width: Number(viewport?.width ?? 0),
+            height: Number(viewport?.height ?? 0),
+          },
+          reactSource: reactSource?.component
+            ? { component: String(reactSource.component), source: reactSource.source ? String(reactSource.source) : undefined }
+            : null,
+          screenshot,
           createdAt: now,
           updatedAt: now,
         };

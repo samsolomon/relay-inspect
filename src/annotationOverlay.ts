@@ -155,6 +155,40 @@ export function buildOverlayScript(port: number): string {
     return { selector: el.tagName.toLowerCase(), confidence: 'fragile' };
   }
 
+  // --- React fiber source detection ---
+  function getReactSource(el) {
+    // Find the React fiber key on the DOM node (__reactFiber$... or __reactInternalInstance$...)
+    var fiberKey = null;
+    var keys = Object.keys(el);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].indexOf('__reactFiber$') === 0 || keys[i].indexOf('__reactInternalInstance$') === 0) {
+        fiberKey = keys[i];
+        break;
+      }
+    }
+    if (!fiberKey) return null;
+
+    // Walk up the fiber tree to find a component with source info
+    var fiber = el[fiberKey];
+    var maxDepth = 20;
+    while (fiber && maxDepth-- > 0) {
+      // Skip host fibers (div, span, etc.) — we want user components
+      if (typeof fiber.type === 'function' || (typeof fiber.type === 'object' && fiber.type !== null)) {
+        var name = fiber.type.displayName || fiber.type.name || null;
+        var source = fiber._debugSource || null;
+        if (name) {
+          var result = { component: name };
+          if (source && source.fileName) {
+            result.source = source.fileName + (source.lineNumber ? ':' + source.lineNumber : '');
+          }
+          return result;
+        }
+      }
+      fiber = fiber.return;
+    }
+    return null;
+  }
+
   // --- API helpers ---
   function fetchAnnotations() {
     return fetch(API + '/annotations').then(function(r) { return r.json(); });
@@ -273,8 +307,7 @@ export function buildOverlayScript(port: number): string {
 
     var rect = targetEl.getBoundingClientRect();
     var selectorResult = generateSelector(targetEl);
-    var snapshot = targetEl.outerHTML;
-    if (snapshot.length > 500) snapshot = snapshot.slice(0, 500) + '...';
+    var reactSource = getReactSource(targetEl);
 
     var popover = document.createElement('div');
     popover.className = 'relay-annotate-popover';
@@ -310,8 +343,15 @@ export function buildOverlayScript(port: number): string {
         url: location.pathname,
         selector: selectorResult.selector,
         selectorConfidence: selectorResult.confidence,
-        elementSnapshot: snapshot,
         text: text,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        reactSource: reactSource,
+        elementRect: {
+          x: Math.round(rect.x),
+          y: Math.round(rect.y),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        },
       }).then(function() {
         closePopover();
         refreshAnnotations();

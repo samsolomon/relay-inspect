@@ -26,6 +26,30 @@ cdpClient.onConnect(async (client) => {
   console.error("[relay-inspect] Annotation overlay auto-injected.");
 });
 
+// --- Screenshot callback for annotation server ---
+
+annotationServer.onScreenshot(async (rect) => {
+  try {
+    const client = await cdpClient.ensureConnected();
+    const dpr = await client.Runtime.evaluate({ expression: "window.devicePixelRatio", returnByValue: true });
+    const scale = (dpr.result.value as number) ?? 1;
+    const result = await client.Page.captureScreenshot({
+      format: "png",
+      clip: {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        scale,
+      },
+    });
+    return "data:image/png;base64," + result.data;
+  } catch (err) {
+    console.error(`[relay-inspect] Screenshot capture error: ${err instanceof Error ? err.message : err}`);
+    return null;
+  }
+});
+
 // --- Helper ---
 
 function connectionError(err: unknown): { content: [{ type: "text"; text: string }] } {
@@ -791,25 +815,35 @@ server.tool(
       };
     }
 
-    const lines = items.map((a, i) => {
+    const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
+
+    content.push({ type: "text", text: `${items.length} annotation(s):` });
+
+    for (let i = 0; i < items.length; i++) {
+      const a = items[i];
       const num = i + 1;
       const conf = a.selectorConfidence === "stable" ? "stable" : "fragile";
-      return [
+      const lines = [
         `#${num} [${a.status.toUpperCase()}] id: ${a.id}`,
         `   Page: ${a.url}`,
         `   Selector (${conf}): ${a.selector}`,
-        `   Element: ${a.elementSnapshot.slice(0, 120)}${a.elementSnapshot.length > 120 ? "..." : ""}`,
+        a.reactSource
+          ? `   Component: ${a.reactSource.component}${a.reactSource.source ? ` (${a.reactSource.source})` : ""}`
+          : null,
+        `   Viewport: ${a.viewport.width}x${a.viewport.height}`,
         `   Feedback: ${a.text}`,
         `   Created: ${a.createdAt}`,
-      ].join("\n");
-    });
+      ].filter(Boolean).join("\n");
 
-    return {
-      content: [{
-        type: "text",
-        text: `${items.length} annotation(s):\n\n${lines.join("\n\n")}`,
-      }],
-    };
+      content.push({ type: "text", text: lines });
+
+      if (a.screenshot) {
+        const base64 = a.screenshot.replace(/^data:image\/\w+;base64,/, "");
+        content.push({ type: "image", data: base64, mimeType: "image/png" });
+      }
+    }
+
+    return { content };
   },
 );
 
