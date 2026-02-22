@@ -410,14 +410,8 @@ export function buildOverlayScript(port: number): string {
     var deleteBtn = document.createElement('button');
     deleteBtn.textContent = 'Delete';
     deleteBtn.className = 'danger';
-    var confirmingDelete = false;
     deleteBtn.addEventListener('click', function(e) {
       e.stopPropagation();
-      if (!confirmingDelete) {
-        confirmingDelete = true;
-        deleteBtn.textContent = 'Confirm?';
-        return;
-      }
       deleteBtn.disabled = true;
       deleteAnnotation(annotation.id).then(function() {
         closePopover();
