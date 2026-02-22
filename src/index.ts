@@ -76,7 +76,7 @@ annotationServer.onSendNotify((count) => {
     level: "info",
     logger: "annotations",
     data: count > 0
-      ? `User clicked "Send to AI" with ${count} open annotation(s). Call list_annotations now to review and address them.`
+      ? `User clicked "Send to AI" with ${count} open annotation(s). Check your pending wait_for_send result, or call list_annotations to review.`
       : `User clicked "Send to AI" but no open annotations remain.`,
   }).catch(() => { /* ignore if not connected */ });
 });

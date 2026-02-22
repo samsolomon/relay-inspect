@@ -72,6 +72,7 @@ export class AnnotationServer {
   private annotations = new Map<string, Annotation>();
   private screenshotCallback: ScreenshotCallback | null = null;
   private sendResolver: (() => void) | null = null;
+  private sendCanceller: (() => void) | null = null;
   private sendLatched = false;
   private sendNotifyCallback: ((count: number) => void) | null = null;
 
@@ -97,22 +98,32 @@ export class AnnotationServer {
       return Promise.resolve({ triggered: true });
     }
 
-    // Cancel any existing waiter (e.g. agent retried after timeout)
-    if (this.sendResolver) {
-      this.sendResolver();
+    // Cancel any existing waiter (e.g. agent called again before timeout)
+    if (this.sendCanceller) {
+      this.sendCanceller();
     }
 
     return new Promise((resolve) => {
       let timer: ReturnType<typeof setTimeout> | null = null;
 
-      this.sendResolver = () => {
+      const cleanup = () => {
         this.sendResolver = null;
+        this.sendCanceller = null;
         if (timer) clearTimeout(timer);
+      };
+
+      this.sendResolver = () => {
+        cleanup();
         resolve({ triggered: true });
       };
 
+      this.sendCanceller = () => {
+        cleanup();
+        resolve({ triggered: false });
+      };
+
       timer = setTimeout(() => {
-        this.sendResolver = null;
+        cleanup();
         resolve({ triggered: false });
       }, timeoutMs);
     });

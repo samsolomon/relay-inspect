@@ -198,7 +198,7 @@ export function buildOverlayScript(port: number): string {
     '}',
     '.relay-annotate-send-btn:hover { background: #6D28D9; }',
     '.relay-annotate-send-btn.sent {',
-    '  background: #059669; border-color: rgba(5, 150, 105, 0.5); pointer-events: none;',
+    '  background: #059669; border-color: rgba(5, 150, 105, 0.5);',
     '}',
     '.relay-annotate-send-btn svg { width: 16px; height: 16px; flex-shrink: 0; }',
     '.relay-send-count {',
