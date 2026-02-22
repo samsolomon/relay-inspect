@@ -123,14 +123,28 @@ export function buildOverlayScript(port: number): string {
     '}',
     '.relay-toolbar-btn svg { width: 18px; height: 18px; flex-shrink: 0; }',
     '.relay-toolbar-btn--icon { width: 40px; padding: 0; cursor: grab; }',
-    '.relay-toolbar-btn.active,',
-    '.relay-toolbar-btn--primary {',
+    '.relay-toolbar-btn.active {',
     '  background: #7C3AED; color: #fff; border-color: rgba(124, 58, 237, 0.5);',
     '}',
-    '.relay-toolbar-btn.active:hover,',
-    '.relay-toolbar-btn--primary:hover { background: #6D28D9; }',
+    '.relay-toolbar-btn.active:hover { background: #6D28D9; }',
     '.relay-toolbar-btn.sent {',
     '  background: #059669; color: #fff; border-color: rgba(5, 150, 105, 0.5);',
+    '}',
+    '.relay-toolbar-tooltip {',
+    '  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);',
+    '  display: none; align-items: center; gap: 4px;',
+    '  padding: 4px 8px; border-radius: 6px;',
+    '  background: var(--relay-bg-solid); color: var(--relay-text-secondary);',
+    '  font-size: 12px; font-weight: 400; white-space: nowrap;',
+    '  box-shadow: 0 2px 8px var(--relay-shadow); border: 1px solid var(--relay-border);',
+    '  pointer-events: none;',
+    '}',
+    '.relay-toolbar-btn:hover .relay-toolbar-tooltip { display: flex; }',
+    '.relay-toolbar-btn.dragging .relay-toolbar-tooltip { display: none; }',
+    '.relay-toolbar-tooltip kbd {',
+    '  padding: 1px 4px; border-radius: 3px;',
+    '  border: 1px solid var(--relay-border); background: var(--relay-btn-bg);',
+    '  font-family: inherit; font-size: 11px; line-height: 1.2;',
     '}',
     '.relay-annotate-mode-bar {',
     '  position: fixed; top: 0; left: 0; right: 0; height: 3px;',
@@ -203,8 +217,9 @@ export function buildOverlayScript(port: number): string {
     '.relay-send-count {',
     '  display: inline-flex; align-items: center; justify-content: center;',
     '  min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px;',
-    '  background: rgba(255,255,255,0.25); font-size: 11px; font-weight: 700; line-height: 1;',
+    '  background: var(--relay-border); font-size: 11px; font-weight: 700; line-height: 1;',
     '}',
+    '.relay-toolbar-btn.sent .relay-send-count { background: rgba(255,255,255,0.25); }',
     '.relay-send-status {',
     '  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;',
     '  background: #9ca3af; transition: background 0.3s;',
@@ -359,16 +374,18 @@ export function buildOverlayScript(port: number): string {
   toggleBtn = document.createElement('button');
   toggleBtn.className = 'relay-toolbar-btn relay-toolbar-btn--icon';
   toggleBtn.setAttribute('data-relay-ignore', 'true');
-  toggleBtn.setAttribute('title', 'Toggle annotation mode (Shift+A)');
   toggleBtn.innerHTML = PENCIL_SVG;
+  var toggleTooltip = document.createElement('span');
+  toggleTooltip.className = 'relay-toolbar-tooltip';
+  toggleTooltip.innerHTML = 'Annotate <kbd>Shift</kbd><kbd>A</kbd>';
+  toggleBtn.appendChild(toggleTooltip);
   rootEl.appendChild(toggleBtn);
 
   // Send to AI button
   var sendBtn = document.createElement('button');
-  sendBtn.className = 'relay-toolbar-btn relay-toolbar-btn--primary';
+  sendBtn.className = 'relay-toolbar-btn';
   sendBtn.style.display = 'none';
   sendBtn.setAttribute('data-relay-ignore', 'true');
-  sendBtn.setAttribute('title', 'Send annotations to AI (Shift+S)');
   var statusDot = document.createElement('span');
   statusDot.className = 'relay-send-status';
   sendBtn.appendChild(statusDot);
@@ -383,6 +400,10 @@ export function buildOverlayScript(port: number): string {
   sendCountBadge.className = 'relay-send-count';
   sendCountBadge.textContent = '0';
   sendBtn.appendChild(sendCountBadge);
+  var sendTooltip = document.createElement('span');
+  sendTooltip.className = 'relay-toolbar-tooltip';
+  sendTooltip.innerHTML = 'Send <kbd>Shift</kbd><kbd>S</kbd>';
+  sendBtn.appendChild(sendTooltip);
   rootEl.appendChild(sendBtn);
 
   // Set initial position via JS (top/left) so drag can update them
@@ -443,6 +464,7 @@ export function buildOverlayScript(port: number): string {
     if (!btnDrag.dragging && Math.sqrt(dx * dx + dy * dy) > BTN_DRAG_THRESHOLD) {
       btnDrag.dragging = true;
       toggleBtn.style.cursor = 'grabbing';
+      toggleBtn.classList.add('dragging');
     }
     if (btnDrag.dragging) {
       var newLeft = e.clientX - btnDrag.offsetX;
@@ -461,6 +483,7 @@ export function buildOverlayScript(port: number): string {
     var wasDrag = btnDrag.dragging;
     btnDrag = null;
     toggleBtn.style.cursor = '';
+    toggleBtn.classList.remove('dragging');
     toggleBtn.releasePointerCapture(e.pointerId);
     if (!wasDrag) {
       setAnnotationMode(!annotationMode);
