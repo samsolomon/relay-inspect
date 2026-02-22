@@ -47,6 +47,14 @@ describe("isAllowedOrigin", () => {
   it("returns null for invalid URL", () => {
     expect(isAllowedOrigin("not-a-url")).toBeNull();
   });
+
+  it("rejects file:// protocol", () => {
+    expect(isAllowedOrigin("file:///etc/passwd")).toBeNull();
+  });
+
+  it("rejects localhost-like subdomains on external hosts", () => {
+    expect(isAllowedOrigin("http://localhost.evil.com")).toBeNull();
+  });
 });
 
 // --- HTTP handler tests ---
@@ -198,6 +206,97 @@ describe("AnnotationServer HTTP", () => {
     });
     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3000");
   });
+
+  it("responds to OPTIONS preflight", async () => {
+    const res = await fetch(`${baseUrl}/annotations`, { method: "OPTIONS" });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-methods")).toContain("POST");
+  });
+
+  it("returns 404 for unknown routes", async () => {
+    const res = await fetch(`${baseUrl}/unknown`);
+    expect(res.status).toBe(404);
+  });
+
+  it("defaults selectorConfidence to fragile for unknown values", async () => {
+    const res = await fetch(`${baseUrl}/annotations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "test",
+        selectorConfidence: "unknown",
+        viewport: { width: 800, height: 600 },
+      }),
+    });
+    const { id } = await res.json();
+    expect(server.getAnnotation(id)?.selectorConfidence).toBe("fragile");
+  });
+
+  it("stores reactSource when provided", async () => {
+    const res = await fetch(`${baseUrl}/annotations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "test",
+        viewport: { width: 800, height: 600 },
+        reactSource: { component: "Button", source: "Button.tsx:42" },
+      }),
+    });
+    const { id } = await res.json();
+    expect(server.getAnnotation(id)?.reactSource).toEqual({
+      component: "Button",
+      source: "Button.tsx:42",
+    });
+  });
+
+  it("stores null reactSource when not provided", async () => {
+    const res = await fetch(`${baseUrl}/annotations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "test", viewport: { width: 800, height: 600 } }),
+    });
+    const { id } = await res.json();
+    expect(server.getAnnotation(id)?.reactSource).toBeNull();
+  });
+
+  it("stores multi-element annotations with anchorPoint", async () => {
+    const res = await fetch(`${baseUrl}/annotations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "multi",
+        viewport: { width: 800, height: 600 },
+        elements: [
+          { selector: ".a", selectorConfidence: "stable", elementRect: { x: 0, y: 0, width: 10, height: 10 } },
+          { selector: ".b", selectorConfidence: "fragile", elementRect: { x: 20, y: 20, width: 10, height: 10 } },
+        ],
+        anchorPoint: { x: 50, y: 50 },
+      }),
+    });
+    const { id } = await res.json();
+    const ann = server.getAnnotation(id)!;
+    expect(ann.elements).toHaveLength(2);
+    expect(ann.anchorPoint).toEqual({ x: 50, y: 50 });
+  });
+
+  it("resolves annotation via POST /:id/resolve", async () => {
+    const createRes = await fetch(`${baseUrl}/annotations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "to resolve", viewport: { width: 800, height: 600 } }),
+    });
+    const { id } = await createRes.json();
+
+    const resolveRes = await fetch(`${baseUrl}/annotations/${id}/resolve`, { method: "POST" });
+    expect(resolveRes.status).toBe(200);
+    const body = await resolveRes.json();
+    expect(body.status).toBe("resolved");
+  });
+
+  it("resolve returns 404 for missing annotation", async () => {
+    const res = await fetch(`${baseUrl}/annotations/nonexistent/resolve`, { method: "POST" });
+    expect(res.status).toBe(404);
+  });
 });
 
 // --- consumeSentState tests ---
@@ -226,5 +325,48 @@ describe("consumeSentState", () => {
     expect(srv.consumeSentState()).toBe(false);
 
     await srv.shutdown();
+  });
+});
+
+// --- waitForSend tests ---
+
+describe("waitForSend", () => {
+  it("resolves immediately if send was latched", async () => {
+    const srv = new AnnotationServer();
+    process.env.ANNOTATION_PORT = "19224";
+    let port: number;
+    try {
+      port = await srv.start();
+    } finally {
+      delete process.env.ANNOTATION_PORT;
+    }
+
+    // Trigger send (latches because no waiter is active)
+    await fetch(`http://127.0.0.1:${port}/annotations/send`, { method: "POST" });
+
+    const result = await srv.waitForSend(5000);
+    expect(result.triggered).toBe(true);
+
+    await srv.shutdown();
+  });
+
+  it("times out when no send occurs", async () => {
+    const srv = new AnnotationServer();
+    const result = await srv.waitForSend(50);
+    expect(result.triggered).toBe(false);
+  });
+});
+
+// --- Direct method tests ---
+
+describe("AnnotationServer methods", () => {
+  it("resolveAnnotation returns undefined for missing id", () => {
+    const srv = new AnnotationServer();
+    expect(srv.resolveAnnotation("nonexistent")).toBeUndefined();
+  });
+
+  it("deleteAnnotation returns false for missing id", () => {
+    const srv = new AnnotationServer();
+    expect(srv.deleteAnnotation("nonexistent")).toBe(false);
   });
 });

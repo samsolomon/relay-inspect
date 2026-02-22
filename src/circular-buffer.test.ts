@@ -37,6 +37,43 @@ describe("CircularBuffer", () => {
     expect(buf.length).toBe(1);
   });
 
+  it("peek returns a copy, not a reference", () => {
+    const buf = new CircularBuffer<number>(5);
+    buf.push(1);
+    const peeked = buf.peek();
+    peeked.push(99);
+    expect(buf.peek()).toEqual([1]);
+  });
+
+  it("allows new items after draining", () => {
+    const buf = new CircularBuffer<number>(3);
+    buf.push(1);
+    buf.drain();
+    buf.push(2);
+    expect(buf.peek()).toEqual([2]);
+  });
+
+  it("maintains FIFO order under continuous overflow", () => {
+    const buf = new CircularBuffer<number>(3);
+    for (let i = 0; i < 100; i++) {
+      buf.push(i);
+    }
+    expect(buf.length).toBe(3);
+    expect(buf.peek()).toEqual([97, 98, 99]);
+  });
+
+  it("works with complex objects", () => {
+    const buf = new CircularBuffer<{ id: number; msg: string }>(2);
+    buf.push({ id: 1, msg: "first" });
+    buf.push({ id: 2, msg: "second" });
+    buf.push({ id: 3, msg: "third" });
+    const items = buf.drain();
+    expect(items).toEqual([
+      { id: 2, msg: "second" },
+      { id: 3, msg: "third" },
+    ]);
+  });
+
   it("works with size of 1", () => {
     const buf = new CircularBuffer<string>(1);
     buf.push("a");
