@@ -149,7 +149,7 @@ export function buildOverlayScript(port: number): string {
     '.relay-annotate-mode-bar.active { opacity: 1; }',
     '.relay-annotate-highlight {',
     '  position: fixed; pointer-events: none; z-index: 999996;',
-    '  outline: 2px dashed #7C3AED; background: rgba(124, 58, 237, 0.08);',
+    '  outline: 2px dashed #7C3AED; outline-offset: -1px; border-radius: 4px; background: rgba(124, 58, 237, 0.08);',
     '  transition: all 0.05s; display: none;',
     '}',
     '.relay-annotate-popover {',
