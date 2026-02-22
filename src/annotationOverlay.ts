@@ -96,6 +96,9 @@ export function buildOverlayScript(port: number): string {
     '.relay-annotate-selector-info {',
     '  font-size: 11px; color: #888; margin-bottom: 6px; word-break: break-all;',
     '}',
+    '.relay-annotate-hint {',
+    '  font-size: 11px; color: #aaa; margin-top: 4px;',
+    '}',
     '.relay-annotate-selection-rect {',
     '  position: fixed; border: 2px solid #7C3AED; background: rgba(124, 58, 237, 0.10);',
     '  z-index: 999996; pointer-events: none; display: none;',
@@ -338,8 +341,13 @@ export function buildOverlayScript(port: number): string {
     popover.appendChild(info);
 
     var textarea = document.createElement('textarea');
-    textarea.placeholder = 'Add feedback... (Enter to save, Shift+Enter for new line)';
+    textarea.placeholder = 'Add feedback...';
     popover.appendChild(textarea);
+
+    var hint = document.createElement('div');
+    hint.className = 'relay-annotate-hint';
+    hint.textContent = 'Enter to save, Shift+Enter for new line';
+    popover.appendChild(hint);
 
     var actions = document.createElement('div');
     actions.className = 'relay-annotate-popover-actions';
@@ -412,6 +420,11 @@ export function buildOverlayScript(port: number): string {
     var textarea = document.createElement('textarea');
     textarea.value = annotation.text;
     popover.appendChild(textarea);
+
+    var hint = document.createElement('div');
+    hint.className = 'relay-annotate-hint';
+    hint.textContent = 'Enter to save, Shift+Enter for new line';
+    popover.appendChild(hint);
 
     var actions = document.createElement('div');
     actions.className = 'relay-annotate-popover-actions';
@@ -527,7 +540,7 @@ export function buildOverlayScript(port: number): string {
   }
 
   // --- Multi-element popover (drag selection) ---
-  function showMultiCreatePopover(elements, anchorRect) {
+  function showMultiCreatePopover(elements, anchorRect, releasePoint) {
     closePopover();
 
     var popover = document.createElement('div');
@@ -540,8 +553,13 @@ export function buildOverlayScript(port: number): string {
     popover.appendChild(info);
 
     var textarea = document.createElement('textarea');
-    textarea.placeholder = 'Add feedback... (Enter to save, Shift+Enter for new line)';
+    textarea.placeholder = 'Add feedback...';
     popover.appendChild(textarea);
+
+    var hint = document.createElement('div');
+    hint.className = 'relay-annotate-hint';
+    hint.textContent = 'Enter to save, Shift+Enter for new line';
+    popover.appendChild(hint);
 
     var actions = document.createElement('div');
     actions.className = 'relay-annotate-popover-actions';
@@ -566,16 +584,14 @@ export function buildOverlayScript(port: number): string {
       var text = textarea.value.trim();
       if (!text) return;
       saveBtn.disabled = true;
-      var promises = elements.map(function(el) {
+      // Build per-element details
+      var elDetails = elements.map(function(el) {
         var rect = el.getBoundingClientRect();
         var selectorResult = generateSelector(el);
         var reactSource = getReactSource(el);
-        return createAnnotation({
-          url: location.pathname,
+        return {
           selector: selectorResult.selector,
           selectorConfidence: selectorResult.confidence,
-          text: text,
-          viewport: { width: window.innerWidth, height: window.innerHeight },
           reactSource: reactSource,
           elementRect: {
             x: Math.round(rect.x),
@@ -583,9 +599,26 @@ export function buildOverlayScript(port: number): string {
             width: Math.round(rect.width),
             height: Math.round(rect.height),
           },
-        });
+        };
       });
-      Promise.all(promises).then(function() {
+      // Use first element's selector as the primary
+      var primary = elDetails[0];
+      createAnnotation({
+        url: location.pathname,
+        selector: primary.selector,
+        selectorConfidence: primary.selectorConfidence,
+        text: text,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        reactSource: primary.reactSource,
+        elementRect: {
+          x: Math.round(anchorRect.left),
+          y: Math.round(anchorRect.top),
+          width: Math.round(anchorRect.right - anchorRect.left),
+          height: Math.round(anchorRect.bottom - anchorRect.top),
+        },
+        elements: elDetails,
+        anchorPoint: { x: releasePoint.x, y: releasePoint.y },
+      }).then(function() {
         closePopover();
         refreshAnnotations();
       }).catch(function(err) { console.error('Multi-annotation save failed:', err); saveBtn.disabled = false; });
@@ -666,7 +699,7 @@ export function buildOverlayScript(port: number): string {
       if (elements.length === 1) {
         showCreatePopover(elements[0]);
       } else {
-        showMultiCreatePopover(elements, selRect);
+        showMultiCreatePopover(elements, selRect, { x: e.clientX, y: e.clientY });
       }
     } else {
       // Click — single element
@@ -707,13 +740,26 @@ export function buildOverlayScript(port: number): string {
     });
 
     pageAnnotations.forEach(function(ann) {
-      var targetEl = null;
-      try { targetEl = document.querySelector(ann.selector); } catch(e) { /* invalid selector */ }
-      if (!targetEl) return;
+      var baseTop, baseLeft;
 
-      // Skip hidden elements (closed dialogs, display:none modals, etc.)
-      if (typeof targetEl.checkVisibility === 'function') {
-        if (!targetEl.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return;
+      if (ann.anchorPoint) {
+        // Multi-element annotation: position badge at the saved anchor point
+        baseTop = ann.anchorPoint.y + window.scrollY - 10;
+        baseLeft = ann.anchorPoint.x + window.scrollX - 10;
+      } else {
+        // Single-element annotation: position at the element
+        var targetEl = null;
+        try { targetEl = document.querySelector(ann.selector); } catch(e) { /* invalid selector */ }
+        if (!targetEl) return;
+
+        // Skip hidden elements (closed dialogs, display:none modals, etc.)
+        if (typeof targetEl.checkVisibility === 'function') {
+          if (!targetEl.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return;
+        }
+
+        var rect = targetEl.getBoundingClientRect();
+        baseTop = rect.top + window.scrollY - 10;
+        baseLeft = rect.right + window.scrollX - 10;
       }
 
       var pin = document.createElement('div');
@@ -722,11 +768,6 @@ export function buildOverlayScript(port: number): string {
       pin.setAttribute('data-relay-annotation-id', ann.id);
       pin.textContent = String(nextBadgeNumber);
       nextBadgeNumber++;
-
-      // Position at top-right of element
-      var rect = targetEl.getBoundingClientRect();
-      var baseTop = rect.top + window.scrollY - 10;
-      var baseLeft = rect.right + window.scrollX - 10;
 
       // Collision avoidance: offset overlapping badges by 24px
       var offsetY = 0;

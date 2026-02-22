@@ -3,6 +3,13 @@ import { randomUUID } from "node:crypto";
 
 // --- Types ---
 
+export interface AnnotationElement {
+  selector: string;
+  selectorConfidence: "stable" | "fragile";
+  reactSource: { component: string; source?: string } | null;
+  elementRect: { x: number; y: number; width: number; height: number };
+}
+
 export interface Annotation {
   id: string;
   url: string;
@@ -13,6 +20,8 @@ export interface Annotation {
   viewport: { width: number; height: number };
   reactSource: { component: string; source?: string } | null;
   screenshot: string | null;
+  elements?: AnnotationElement[];
+  anchorPoint?: { x: number; y: number };
   createdAt: string;
   updatedAt: string;
 }
@@ -213,6 +222,33 @@ export class AnnotationServer {
           createdAt: now,
           updatedAt: now,
         };
+
+        // Multi-element annotations (drag-select)
+        if (Array.isArray(body.elements)) {
+          annotation.elements = (body.elements as Record<string, unknown>[]).map((el) => {
+            const elRect = el.elementRect as { x?: number; y?: number; width?: number; height?: number } | undefined;
+            const elReact = el.reactSource as { component?: string; source?: string } | undefined;
+            return {
+              selector: String(el.selector ?? ""),
+              selectorConfidence: el.selectorConfidence === "stable" ? "stable" : "fragile" as const,
+              reactSource: elReact?.component
+                ? { component: String(elReact.component), source: elReact.source ? String(elReact.source) : undefined }
+                : null,
+              elementRect: {
+                x: Number(elRect?.x ?? 0),
+                y: Number(elRect?.y ?? 0),
+                width: Number(elRect?.width ?? 0),
+                height: Number(elRect?.height ?? 0),
+              },
+            };
+          });
+        }
+
+        const anchorPt = body.anchorPoint as { x?: number; y?: number } | undefined;
+        if (anchorPt && anchorPt.x != null && anchorPt.y != null) {
+          annotation.anchorPoint = { x: Number(anchorPt.x), y: Number(anchorPt.y) };
+        }
+
         this.annotations.set(annotation.id, annotation);
         jsonResponse(res, 201, { id: annotation.id });
         return;
