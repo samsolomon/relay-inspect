@@ -146,7 +146,7 @@ export function buildOverlayScript(port: number): string {
     '}',
     '.relay-annotate-mode-bar {',
     '  position: fixed; top: 0; left: 0; right: 0; bottom: 0;',
-    '  border: 3px solid #7C3AED; border-radius: 0 0 10px 10px; z-index: 999998; pointer-events: none;',
+    '  box-shadow: inset 0 0 0 3px #7C3AED; z-index: 999998; pointer-events: none;',
     '  transition: opacity 0.15s; opacity: 0;',
     '}',
     '.relay-annotate-mode-bar.active { opacity: 1; }',
@@ -236,18 +236,32 @@ export function buildOverlayScript(port: number): string {
     '.relay-annotate-modal p {',
     '  font-size: 13px; color: var(--relay-text-secondary); line-height: 1.5; margin: 0 0 12px;',
     '}',
-    '.relay-annotate-modal code {',
-    '  display: block; padding: 8px 12px; border-radius: 6px; margin: 0 0 12px;',
+    '.relay-annotate-modal-code {',
+    '  display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px;',
+    '  border-radius: 6px; margin: 0 0 12px;',
     '  background: var(--relay-input-bg); border: 1px solid var(--relay-border-subtle);',
-    '  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;',
-    '  font-size: 12px; color: var(--relay-text); white-space: pre-wrap;',
     '}',
-    '.relay-annotate-modal button {',
+    '.relay-annotate-modal-code code {',
+    '  flex: 1; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;',
+    '  font-size: 12px; color: var(--relay-text);',
+    '}',
+    '.relay-annotate-modal-code button {',
+    '  flex-shrink: 0; width: 28px; height: 28px; padding: 0; border-radius: 6px;',
+    '  border: 1px solid var(--relay-border-subtle); cursor: pointer;',
+    '  background: transparent; color: var(--relay-text-secondary);',
+    '  display: flex; align-items: center; justify-content: center;',
+    '  transition: background 0.15s, color 0.15s;',
+    '}',
+    '.relay-annotate-modal-code button:hover {',
+    '  background: var(--relay-btn-hover); color: var(--relay-text);',
+    '}',
+    '.relay-annotate-modal-code button svg { width: 14px; height: 14px; }',
+    '.relay-annotate-modal > button {',
     '  width: 100%; height: 36px; border-radius: 18px; border: none; cursor: pointer;',
     '  background: #7C3AED; color: #fff; font-size: 13px; font-weight: 600;',
     '  font-family: inherit; transition: background 0.15s;',
     '}',
-    '.relay-annotate-modal button:hover { background: #6D28D9; }',
+    '.relay-annotate-modal > button:hover { background: #6D28D9; }',
   ].join('\\n');
   document.head.appendChild(styleEl);
 
@@ -257,7 +271,8 @@ export function buildOverlayScript(port: number): string {
   var SEND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg>';
   var CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
   var TRASH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
-  var INFO_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>';
+  var SEND_TO_BACK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="14" width="8" height="8" rx="2"/><rect x="2" y="2" width="8" height="8" rx="2"/><path d="M7 14v1a2 2 0 0 0 2 2h1"/><path d="M14 7h1a2 2 0 0 1 2 2v1"/></svg>';
+  var COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
 
   // --- Selector generator ---
   var MAX_SELECTOR_DEPTH = 10;
@@ -428,7 +443,7 @@ export function buildOverlayScript(port: number): string {
   enableSendBtn.style.display = 'none';
   enableSendBtn.setAttribute('data-relay-ignore', 'true');
   var enableSendIcon = document.createElement('span');
-  enableSendIcon.innerHTML = INFO_SVG;
+  enableSendIcon.innerHTML = SEND_TO_BACK_SVG;
   enableSendIcon.style.display = 'flex';
   enableSendBtn.appendChild(enableSendIcon);
   var enableSendLabel = document.createElement('span');
@@ -453,11 +468,25 @@ export function buildOverlayScript(port: number): string {
   var modalP1 = document.createElement('p');
   modalP1.textContent = 'In your terminal, ask the agent to listen for annotations. For example:';
   modalCard.appendChild(modalP1);
+  var EXAMPLE_PROMPT = 'Listen for my annotations';
+  var modalCodeWrap = document.createElement('div');
+  modalCodeWrap.className = 'relay-annotate-modal-code';
   var modalCode = document.createElement('code');
-  modalCode.textContent = 'Listen for my annotations';
-  modalCard.appendChild(modalCode);
+  modalCode.textContent = EXAMPLE_PROMPT;
+  modalCodeWrap.appendChild(modalCode);
+  var modalCopyBtn = document.createElement('button');
+  modalCopyBtn.innerHTML = COPY_SVG;
+  modalCopyBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(EXAMPLE_PROMPT).then(function() {
+      modalCopyBtn.innerHTML = CHECK_SVG;
+      setTimeout(function() { modalCopyBtn.innerHTML = COPY_SVG; }, 1500);
+    });
+  });
+  modalCodeWrap.appendChild(modalCopyBtn);
+  modalCard.appendChild(modalCodeWrap);
   var modalP2 = document.createElement('p');
-  modalP2.textContent = 'Once listening, you can send feedback directly from the browser.';
+  modalP2.textContent = 'Once listening, you can send feedback directly from the browser. To ask a question, interrupt the agent first.';
   modalCard.appendChild(modalP2);
   var modalOkBtn = document.createElement('button');
   modalOkBtn.textContent = 'OK';
