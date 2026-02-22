@@ -63,7 +63,7 @@ annotationServer.onSendNotify((count) => {
     level: "info",
     logger: "annotations",
     data: count > 0
-      ? `User clicked "Send to AI" — ${count} open annotation(s). Use list_annotations or wait_for_send to review.`
+      ? `User clicked "Send to AI" with ${count} open annotation(s). Call list_annotations now to review and address them.`
       : `User clicked "Send to AI" but no open annotations remain.`,
   }).catch(() => { /* ignore if not connected */ });
 });
@@ -776,7 +776,7 @@ server.tool(
             success: true,
             port,
             message: result.result.value,
-            hint: "The annotation overlay is now active. Users can click the pencil button (bottom-right) or press Shift+A to start annotating elements. Use list_annotations to see feedback.",
+            hint: "The annotation overlay is now active. Users can click the pencil button (bottom-right) or press Shift+A to start annotating elements. IMPORTANT: Call wait_for_send now to listen for the user's annotations — do not wait for them to ask.",
           }, null, 2),
         }],
       };
@@ -929,7 +929,7 @@ server.tool(
 
 server.tool(
   "wait_for_send",
-  "Long-poll until the user clicks 'Send to AI' in the browser overlay, then return all open annotations",
+  "Long-poll until the user clicks 'Send to AI' in the browser overlay, then return all open annotations. Call this proactively after connecting to a page or injecting the overlay — do not wait for the user to ask. When it times out, call it again to keep listening.",
   {
     timeout: z
       .number()
