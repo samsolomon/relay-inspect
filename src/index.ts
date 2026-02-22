@@ -5,6 +5,8 @@ import CDP from "chrome-remote-interface";
 import { cdpClient, config, isInternalTargetUrl } from "./cdp-client.js";
 import { isAutoLaunchEnabled, findChromePath } from "./chrome-launcher.js";
 import { serverManager } from "./server-manager.js";
+import { annotationServer, getAnnotationPort } from "./annotationServer.js";
+import { buildOverlayScript } from "./annotationOverlay.js";
 
 const server = new McpServer({
   name: "relay-inspect",
@@ -670,6 +672,203 @@ server.tool(
   },
 );
 
+// --- Tool: inject_annotation_overlay ---
+
+server.tool(
+  "inject_annotation_overlay",
+  "Inject the annotation overlay into the current browser page. Users can pin visual feedback to DOM elements. Safe to call repeatedly (idempotent).",
+  {},
+  async () => {
+    // Lazy-start annotation server
+    let port: number;
+    try {
+      port = await annotationServer.start();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: `Annotation server failed to start: ${message}` }, null, 2) }],
+      };
+    }
+
+    let client: CDP.Client;
+    try {
+      client = await cdpClient.ensureConnected();
+    } catch (err) {
+      return connectionError(err);
+    }
+
+    try {
+      const script = buildOverlayScript(port);
+      const result = await client.Runtime.evaluate({
+        expression: script,
+        returnByValue: true,
+        awaitPromise: false,
+      });
+
+      if (result.exceptionDetails) {
+        const text = result.exceptionDetails.exception?.description
+          ?? result.exceptionDetails.text
+          ?? "Unknown error";
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: `Overlay injection failed: ${text}` }, null, 2) }],
+        };
+      }
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            port,
+            message: result.result.value,
+            hint: "The annotation overlay is now active. Users can click the pencil button (bottom-right) or press Shift+A to start annotating elements. Use list_annotations to see feedback.",
+          }, null, 2),
+        }],
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+      };
+    }
+  },
+);
+
+// --- Tool: list_annotations ---
+
+server.tool(
+  "list_annotations",
+  "List all annotations pinned by the user in the browser overlay",
+  {
+    includeResolved: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Include resolved annotations (default: false, only open)"),
+  },
+  async ({ includeResolved }) => {
+    const port = getAnnotationPort();
+    if (port === null) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            error: "Annotation server is not running. Call inject_annotation_overlay first.",
+          }, null, 2),
+        }],
+      };
+    }
+
+    let items = annotationServer.getAnnotations();
+    if (!includeResolved) {
+      items = items.filter((a) => a.status === "open");
+    }
+
+    if (items.length === 0) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            count: 0,
+            message: includeResolved
+              ? "No annotations found."
+              : "No open annotations. Use includeResolved: true to see resolved ones.",
+          }, null, 2),
+        }],
+      };
+    }
+
+    const lines = items.map((a, i) => {
+      const num = i + 1;
+      const conf = a.selectorConfidence === "stable" ? "stable" : "fragile";
+      return [
+        `#${num} [${a.status.toUpperCase()}] id: ${a.id}`,
+        `   Page: ${a.url}`,
+        `   Selector (${conf}): ${a.selector}`,
+        `   Element: ${a.elementSnapshot.slice(0, 120)}${a.elementSnapshot.length > 120 ? "..." : ""}`,
+        `   Feedback: ${a.text}`,
+        `   Created: ${a.createdAt}`,
+      ].join("\n");
+    });
+
+    return {
+      content: [{
+        type: "text",
+        text: `${items.length} annotation(s):\n\n${lines.join("\n\n")}`,
+      }],
+    };
+  },
+);
+
+// --- Tool: resolve_annotation ---
+
+server.tool(
+  "resolve_annotation",
+  "Mark an annotation as resolved after addressing the user's feedback",
+  {
+    id: z.string().describe("The annotation ID to resolve"),
+  },
+  async ({ id }) => {
+    const port = getAnnotationPort();
+    if (port === null) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            error: "Annotation server is not running. Call inject_annotation_overlay first.",
+          }, null, 2),
+        }],
+      };
+    }
+
+    const resolved = annotationServer.resolveAnnotation(id);
+    if (!resolved) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ error: `Annotation "${id}" not found.` }, null, 2),
+        }],
+      };
+    }
+
+    // Update the badge visually in the browser if connected
+    try {
+      const client = await cdpClient.ensureConnected();
+      // Sanitize id to prevent injection — only allow UUID characters
+      const safeId = id.replace(/[^a-f0-9-]/gi, "");
+      await client.Runtime.evaluate({
+        expression: `(function() {
+          var pin = document.querySelector('[data-relay-annotation-id="${safeId}"]');
+          if (pin) {
+            pin.style.background = '#9CA3AF';
+            pin.style.textDecoration = 'line-through';
+            pin.style.pointerEvents = 'none';
+            pin.style.opacity = '0.7';
+          }
+          if (typeof window.__relayAnnotateRefresh === 'function') {
+            window.__relayAnnotateRefresh();
+          }
+          return true;
+        })()`,
+        returnByValue: true,
+        awaitPromise: false,
+      });
+    } catch {
+      // Best-effort — badge update is visual-only
+    }
+
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          success: true,
+          annotation: resolved,
+        }, null, 2),
+      }],
+    };
+  },
+);
+
 // --- Process Exit Handlers ---
 
 let shuttingDown = false;
@@ -681,6 +880,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   await Promise.all([
     cdpClient.shutdown(),
     serverManager.stopAll(),
+    annotationServer.shutdown(),
   ]);
   process.exit(0);
 }
