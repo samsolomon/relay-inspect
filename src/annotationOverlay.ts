@@ -143,7 +143,7 @@ export function buildOverlayScript(port: number): string {
     '}',
     '.relay-annotate-mode-bar {',
     '  position: fixed; top: 0; left: 0; right: 0; bottom: 0;',
-    '  border: 3px solid #7C3AED; border-radius: 10px; z-index: 999998; pointer-events: none;',
+    '  border: 3px solid #7C3AED; border-radius: 0 0 10px 10px; z-index: 999998; pointer-events: none;',
     '  transition: opacity 0.15s; opacity: 0;',
     '}',
     '.relay-annotate-mode-bar.active { opacity: 1; }',
