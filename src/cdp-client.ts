@@ -273,11 +273,7 @@ export class CDPClient {
 
   private async fireOnConnect(client: CDP.Client): Promise<void> {
     if (!this.onConnectCallback) return;
-    try {
-      await this.onConnectCallback(client);
-    } catch (err) {
-      console.error(`[relay-inspect] onConnect callback error: ${err instanceof Error ? err.message : err}`);
-    }
+    await this.onConnectCallback(client);
   }
 
   private async isAlive(client: CDP.Client): Promise<boolean> {

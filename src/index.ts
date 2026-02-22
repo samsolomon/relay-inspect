@@ -1179,7 +1179,6 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
 process.on("SIGINT", () => { void gracefulShutdown("SIGINT"); });
 process.on("SIGTERM", () => { void gracefulShutdown("SIGTERM"); });
-process.on("beforeExit", () => { void gracefulShutdown("beforeExit"); });
 
 // Last-resort sync cleanup — async operations are not possible in 'exit'
 process.on("exit", () => {
