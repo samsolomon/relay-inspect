@@ -80,6 +80,7 @@ The annotation overlay is auto-injected on every Chrome connection (including pa
 | `inject_annotation_overlay` | Manually inject the overlay (idempotent, usually not needed) | _(none)_ |
 | `list_annotations` | List all annotations with screenshots, React source, and viewport | _(none)_ |
 | `resolve_annotation` | Remove an annotation from the UI and delete it | `id: string` |
+| `wait_for_send` | Long-poll until the user clicks "Send to AI" in the browser overlay, then return all open annotations | `timeout?: number` (default 30, max 300 seconds) |
 
 Each annotation captures:
 - **selector** — CSS selector for the annotated element (with confidence: stable/fragile)
