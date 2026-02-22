@@ -71,6 +71,9 @@ export function buildOverlayScript(port: number): string {
   var dragHighlightTimer = null;
   var sentUntil = 0; // timestamp — don't reset sent state until this expires
   var sendingEnabled = false; // one-time onboarding gate for Send button
+  var processingState = 'idle'; // 'idle' | 'processing' | 'done'
+  var processingTimer = null;
+  var PROCESSING_TIMEOUT_MS = 120000; // 2min safety reset
 
   // --- Styles ---
   var styleEl = document.createElement('style');
@@ -206,6 +209,10 @@ export function buildOverlayScript(port: number): string {
     '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
     '  user-select: none; line-height: 1;',
     '}',
+    '.relay-annotate-pin::after {',
+    '  content: ""; position: absolute;',
+    '  top: -8px; left: -8px; right: -8px; bottom: -8px;',
+    '}',
     '.relay-annotate-selector-info {',
     '  font-size: 11px; color: var(--relay-text-secondary); margin-bottom: 6px;',
     '}',
@@ -286,6 +293,21 @@ export function buildOverlayScript(port: number): string {
     '  padding: 2px 6px; border-radius: var(--relay-radius-xs);',
     '  border: 1px solid var(--relay-border); background: var(--relay-btn-bg);',
     '  font-family: inherit; font-size: 12px; line-height: 1.3;',
+    '}',
+    // --- Processing state spinner ---
+    '@keyframes relay-spin { to { transform: rotate(360deg); } }',
+    '.relay-toolbar-btn.processing {',
+    '  background: #7C3AED; color: #fff; border-color: rgba(124, 58, 237, 0.5);',
+    '  pointer-events: none;',
+    '}',
+    '.relay-processing-spinner {',
+    '  width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3);',
+    '  border-top-color: #fff; border-radius: 50%;',
+    '  animation: relay-spin 0.6s linear infinite; flex-shrink: 0;',
+    '}',
+    '.relay-toolbar-btn.done {',
+    '  background: #059669; color: #fff; border-color: rgba(5, 150, 105, 0.5);',
+    '  pointer-events: none;',
     '}',
   ].join('\\n');
   document.head.appendChild(styleEl);
@@ -1145,7 +1167,34 @@ export function buildOverlayScript(port: number): string {
 
     // Update Send / Enable-sending button visibility
     var openCount = annotations.filter(function(a) { return a.status === 'open'; }).length;
-    if (openCount > 0) {
+
+    // Processing/done states override normal button appearance
+    if (processingState === 'processing') {
+      enableSendBtn.style.display = 'none';
+      sendBtn.style.display = 'flex';
+      sendBtn.classList.remove('sent');
+      sendBtn.classList.add('processing');
+      sendBtn.classList.remove('done');
+      sendIconSpan.innerHTML = '<div class="relay-processing-spinner"></div>';
+      sendLabel.textContent = 'Working...';
+      sendCountBadge.style.display = 'none';
+      sendBtn.style.pointerEvents = 'none';
+      positionSendBtn();
+    } else if (processingState === 'done') {
+      enableSendBtn.style.display = 'none';
+      sendBtn.style.display = 'flex';
+      sendBtn.classList.remove('sent');
+      sendBtn.classList.remove('processing');
+      sendBtn.classList.add('done');
+      sendIconSpan.innerHTML = CHECK_SVG;
+      sendLabel.textContent = 'Done!';
+      sendCountBadge.style.display = 'none';
+      sendBtn.style.pointerEvents = 'none';
+      positionSendBtn();
+    } else if (openCount > 0) {
+      sendBtn.classList.remove('processing');
+      sendBtn.classList.remove('done');
+      sendCountBadge.style.display = '';
       if (sendingEnabled) {
         enableSendBtn.style.display = 'none';
         sendBtn.style.display = 'flex';
@@ -1164,6 +1213,9 @@ export function buildOverlayScript(port: number): string {
         positionEnableSendBtn();
       }
     } else {
+      sendBtn.classList.remove('processing');
+      sendBtn.classList.remove('done');
+      sendCountBadge.style.display = '';
       sendBtn.style.display = 'none';
       enableSendBtn.style.display = 'none';
     }
@@ -1260,6 +1312,28 @@ export function buildOverlayScript(port: number): string {
   // Expose globally for MCP tools
   window.__relayAnnotateRefresh = refreshAnnotations;
 
+  // Processing state control — called by MCP via CDP Runtime.evaluate
+  window.__relaySetProcessingState = function(state) {
+    processingState = state;
+    if (processingTimer) { clearTimeout(processingTimer); processingTimer = null; }
+
+    if (state === 'processing') {
+      // Auto-reset after 2 min (handles AI crash/disconnect)
+      processingTimer = setTimeout(function() {
+        processingState = 'idle';
+        renderBadges();
+      }, PROCESSING_TIMEOUT_MS);
+    } else if (state === 'done') {
+      // Show "Done!" for 3s, then reset
+      processingTimer = setTimeout(function() {
+        processingState = 'idle';
+        renderBadges();
+      }, 3000);
+    }
+
+    renderBadges();
+  };
+
   // --- URL change detection (SPA navigation) ---
   function onUrlChange() {
     var newPath = location.pathname;
@@ -1284,12 +1358,12 @@ export function buildOverlayScript(port: number): string {
   window.addEventListener('popstate', onUrlChange);
 
   // --- DOM mutation observer (modals, dialogs, drawers) ---
-  var renderDebounceTimer = null;
-  function debouncedRenderBadges() {
-    if (renderDebounceTimer) return;
-    renderDebounceTimer = setTimeout(function() {
-      renderDebounceTimer = null;
-      renderBadges();
+  var repositionDebounceTimer = null;
+  function debouncedRepositionBadges() {
+    if (repositionDebounceTimer) return;
+    repositionDebounceTimer = setTimeout(function() {
+      repositionDebounceTimer = null;
+      repositionBadges();
     }, 150);
   }
 
@@ -1300,7 +1374,7 @@ export function buildOverlayScript(port: number): string {
     for (var i = 0; i < mutations.length; i++) {
       var target = mutations[i].target;
       if (target.nodeType === 1 && target.hasAttribute && target.hasAttribute('data-relay-ignore')) continue;
-      debouncedRenderBadges();
+      debouncedRepositionBadges();
       return;
     }
   });

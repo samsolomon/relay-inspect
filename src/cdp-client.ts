@@ -219,6 +219,11 @@ export class CDPClient {
     this.networkRequests = new CircularBuffer<NetworkEntry>(config.networkBufferSize);
   }
 
+  /** Returns true if a CDP client is currently connected (no auto-launch or reconnect). */
+  get isConnected(): boolean {
+    return this.client !== null;
+  }
+
   /**
    * Register a callback that fires after every successful connection.
    * Used to auto-inject the annotation overlay.

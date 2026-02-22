@@ -100,6 +100,23 @@ function connectionError(err: unknown) {
   });
 }
 
+// --- Processing state tracking ---
+
+let previousWaitForSendTriggered = false;
+
+/** Best-effort push of processing state to the browser overlay via CDP.
+ *  Uses passive `isConnected` check to avoid triggering auto-launch. */
+function injectProcessingState(state: "idle" | "processing" | "done"): void {
+  if (!cdpClient.isConnected) return;
+  cdpClient.ensureConnected().then((client) => {
+    client.Runtime.evaluate({
+      expression: `if (typeof window.__relaySetProcessingState === 'function') window.__relaySetProcessingState('${state}');`,
+      returnByValue: true,
+      awaitPromise: false,
+    }).catch(() => { /* best-effort */ });
+  }).catch(() => { /* not connected — skip */ });
+}
+
 // --- Passive annotation count wrapper ---
 
 function withAnnotationCount(
@@ -111,12 +128,25 @@ function withAnnotationCount(
   const openAnnotations = annotationServer
     .getAnnotations()
     .filter((a) => a.status === "open");
-  if (openAnnotations.length === 0) return result;
 
   // Check if the user clicked "Send to AI" — deliver full annotations inline
-  if (annotationServer.consumeSentState()) {
+  const sentTriggered = annotationServer.consumeSentState();
+
+  // Signal "done" from a previous processing cycle (before starting new work)
+  if (previousWaitForSendTriggered && !sentTriggered) {
+    previousWaitForSendTriggered = false;
+    injectProcessingState("done");
+  }
+
+  if (openAnnotations.length === 0 && !sentTriggered) return result;
+
+  if (sentTriggered) {
     const annotationBlocks = formatAnnotations(openAnnotations);
     result.content.push(...annotationBlocks);
+
+    // Signal "processing" to the overlay
+    previousWaitForSendTriggered = true;
+    injectProcessingState("processing");
 
     // Fire-and-forget auto-resolve: remove badges + delete annotations
     (async () => {
@@ -1112,6 +1142,12 @@ server.tool(
       };
     }
 
+    // Signal "done" from a previous processing cycle
+    if (previousWaitForSendTriggered) {
+      previousWaitForSendTriggered = false;
+      injectProcessingState("done");
+    }
+
     const result = await annotationServer.waitForSend(timeout * 1000);
 
     if (!result.triggered) {
@@ -1156,6 +1192,10 @@ server.tool(
     for (const a of items) {
       annotationServer.deleteAnnotation(a.id);
     }
+
+    // Signal "processing" after annotations are cleaned up to avoid ghost pins
+    previousWaitForSendTriggered = true;
+    injectProcessingState("processing");
 
     return { content };
   },
