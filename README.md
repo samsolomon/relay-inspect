@@ -1,8 +1,8 @@
-# Relay Inspect MCP
+# Relay Inspect
 
 Stop copying and pasting console logs, server errors and screenshots into your CLI. Relay Inspect gives your AI coding agent direct access to your browser—so it can see what you see, verify its own changes, and debug without asking you to copy and paste.
 
-Relay Inspect is lightweight tool for designers and engineers who want to spend more time building and less time debugging.
+Relay Inspect is a lightweight tool for designers and engineers who want to spend more time building and less time debugging.
 
 ```
                                                     ┌─ Chrome (CDP over WebSocket)
@@ -44,6 +44,25 @@ Your agent gets access to the following tools automatically via MCP:
 | `get_server_logs` | Read stdout/stderr output from a managed server process | `id` (string), `clear` (bool, default: true) |
 | `stop_server` | Stop a running managed server process | `id` (string) |
 | `list_servers` | List all managed server processes and their status | — |
+
+### Annotations
+
+An annotation overlay is auto-injected into the browser on every Chrome connection. Users can pin visual feedback to any DOM element — click the pencil button or press **Shift+A** to toggle annotation mode, then click an element and leave a comment.
+
+The agent reads annotations via `list_annotations` and removes them with `resolve_annotation` after addressing the feedback.
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `inject_annotation_overlay` | Manually inject the overlay (idempotent, usually not needed) | — |
+| `list_annotations` | List all annotations with screenshots and context | — |
+| `resolve_annotation` | Remove an annotation from the UI and delete it | `id` (string) |
+
+Each annotation includes:
+- A **screenshot** of the annotated element
+- The **React component name and source file** (when available)
+- The **viewport size** at annotation time
+- A **CSS selector** for the element
+- The user's **feedback text**
 
 ### Diagnostics
 

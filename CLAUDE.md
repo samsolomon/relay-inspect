@@ -29,10 +29,12 @@ AI Coding Agent  ←→  Relay Inspect (MCP over stdio) ─┤
 ```
 relay-inspect/
 ├── src/
-│   ├── index.ts            # Entry point — MCP server setup, tool registration, exit handlers
-│   ├── cdp-client.ts       # Chrome connection, event buffering, reconnection, auto-launch integration
-│   ├── chrome-launcher.ts  # Chrome path discovery, auto-launch, CDP readiness polling
-│   └── server-manager.ts   # Dev server lifecycle management (start/stop/logs)
+│   ├── index.ts              # Entry point — MCP server setup, tool registration, exit handlers
+│   ├── cdp-client.ts         # Chrome connection, event buffering, reconnection, auto-launch integration
+│   ├── chrome-launcher.ts    # Chrome path discovery, auto-launch, CDP readiness polling
+│   ├── server-manager.ts     # Dev server lifecycle management (start/stop/logs)
+│   ├── annotationOverlay.ts  # Browser-injected IIFE for annotation UI (highlight, popover, badges)
+│   └── annotationServer.ts   # HTTP server for annotation CRUD, screenshot callback
 ├── package.json
 ├── tsconfig.json
 ├── CLAUDE.md
@@ -68,6 +70,25 @@ relay-inspect/
 | `get_server_logs` | Read stdout/stderr output from a managed server process | `id: string`, `clear?: boolean` (default true) |
 | `stop_server` | Stop a running managed server process | `id: string` |
 | `list_servers` | List all managed server processes and their status | _(none)_ |
+
+### Annotations
+
+The annotation overlay is auto-injected on every Chrome connection (including page switches). Users pin visual feedback to DOM elements via a browser UI; the agent reads and resolves annotations via MCP tools.
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `inject_annotation_overlay` | Manually inject the overlay (idempotent, usually not needed) | _(none)_ |
+| `list_annotations` | List all annotations with screenshots, React source, and viewport | _(none)_ |
+| `resolve_annotation` | Remove an annotation from the UI and delete it | `id: string` |
+
+Each annotation captures:
+- **selector** — CSS selector for the annotated element (with confidence: stable/fragile)
+- **screenshot** — CDP-clipped PNG of the element at annotation time (base64, returned as MCP image block)
+- **reactSource** — React component name and source file/line from fiber tree (null if not React or production build)
+- **viewport** — `{width, height}` at annotation time
+- **text** — the user's feedback
+
+The overlay blocks `pointerdown`/`mousedown`/`touchstart` in annotation mode to prevent the app from reacting (e.g., closing modals) while annotating.
 
 ### Diagnostics
 
@@ -108,6 +129,7 @@ Console and network events should be buffered in memory with sensible limits:
 - **Liveness check** — Before reusing an existing connection, verify it's alive with a lightweight `Browser.getVersion()` call. If stale, reconnect
 - **Fresh discovery** — Always discover Chrome targets via HTTP (`CDP.List()` hitting `http://host:port/json/list`), never cache WebSocket URLs. This handles Chrome restarts transparently
 - **Retry with backoff** — Connection attempts retry 3 times with 500ms initial delay, doubling each attempt
+- **Post-connect callback** — `CDPClient.onConnect()` fires after every fresh connection (including page switches via `connectToPage`). Used to auto-inject the annotation overlay
 - **Graceful disconnect** — On Chrome disconnect, null out the client and let the next tool call reconnect lazily. No background reconnect timers
 - Log connection status to stderr (MCP uses stdout for protocol, stderr for diagnostics)
 - Support configurable port via environment variable: `CHROME_DEBUG_PORT=9222`
