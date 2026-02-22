@@ -172,7 +172,7 @@ SERVER_LOG_BUFFER_SIZE=1000     # Max log entries per managed server (default: 1
     "relay-inspect": {
       "command": "node",
       "args": ["dist/index.js"],
-      "cwd": "/absolute/path/to/relay-inspect-mcp"
+      "cwd": "/absolute/path/to/relay-inspect"
     }
   }
 }
@@ -181,7 +181,7 @@ SERVER_LOG_BUFFER_SIZE=1000     # Max log entries per managed server (default: 1
 **Codex CLI:**
 
 ```bash
-codex mcp add relay-inspect -- node /absolute/path/to/relay-inspect-mcp/dist/index.js
+codex mcp add relay-inspect -- node /absolute/path/to/relay-inspect/dist/index.js
 ```
 
 **opencode** — add to `opencode.json`:
@@ -194,7 +194,7 @@ codex mcp add relay-inspect -- node /absolute/path/to/relay-inspect-mcp/dist/ind
       "command": "node",
       "args": ["dist/index.js"],
       "env": {},
-      "cwd": "/absolute/path/to/relay-inspect-mcp"
+      "cwd": "/absolute/path/to/relay-inspect"
     }
   }
 }
@@ -208,7 +208,7 @@ During development with tsx:
     "relay-inspect": {
       "command": "npx",
       "args": ["tsx", "src/index.ts"],
-      "cwd": "/absolute/path/to/relay-inspect-mcp"
+      "cwd": "/absolute/path/to/relay-inspect"
     }
   }
 }

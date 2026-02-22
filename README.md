@@ -61,8 +61,8 @@ Your agent gets access to the following tools automatically via MCP:
 ### Install
 
 ```bash
-git clone https://github.com/samsolomon/relay-inspect-mcp.git
-cd relay-inspect-mcp
+git clone https://github.com/samsolomon/relay-inspect.git
+cd relay-inspect
 npm install
 npm run build
 ```
@@ -77,7 +77,7 @@ npm run build
     "relay-inspect": {
       "command": "node",
       "args": ["dist/index.js"],
-      "cwd": "/absolute/path/to/relay-inspect-mcp"
+      "cwd": "/absolute/path/to/relay-inspect"
     }
   }
 }
@@ -86,7 +86,7 @@ npm run build
 **Codex CLI:**
 
 ```bash
-codex mcp add relay-inspect -- node /absolute/path/to/relay-inspect-mcp/dist/index.js
+codex mcp add relay-inspect -- node /absolute/path/to/relay-inspect/dist/index.js
 ```
 
 **opencode** — add to `opencode.json`:
@@ -99,7 +99,7 @@ codex mcp add relay-inspect -- node /absolute/path/to/relay-inspect-mcp/dist/ind
       "command": "node",
       "args": ["dist/index.js"],
       "env": {},
-      "cwd": "/absolute/path/to/relay-inspect-mcp"
+      "cwd": "/absolute/path/to/relay-inspect"
     }
   }
 }
