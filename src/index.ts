@@ -1020,7 +1020,30 @@ server.tool(
       };
     }
 
-    return { content: formatAnnotations(items) };
+    const content = formatAnnotations(items);
+
+    // Auto-resolve: remove badges from browser and delete annotations
+    try {
+      const client = await cdpClient.ensureConnected();
+      const ids = items.map((a) => a.id);
+      const safeIds = ids.map((id) => id.replace(/[^a-f0-9-]/gi, ""));
+      await client.Runtime.evaluate({
+        expression: `(function() {
+          ${safeIds.map((id) => `var p = document.querySelector('[data-relay-annotation-id="${id}"]'); if (p) p.remove();`).join("\n")}
+          if (typeof window.__relayAnnotateRefresh === 'function') window.__relayAnnotateRefresh();
+          return true;
+        })()`,
+        returnByValue: true,
+        awaitPromise: false,
+      });
+    } catch {
+      // Best-effort — badge removal is visual-only
+    }
+    for (const a of items) {
+      annotationServer.deleteAnnotation(a.id);
+    }
+
+    return { content };
   },
 );
 
