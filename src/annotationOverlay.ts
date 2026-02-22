@@ -31,6 +31,8 @@ export function buildOverlayScript(port: number): string {
   var toggleBtn = null;
   var hoveredEl = null;
   var currentPath = location.pathname;
+  var dragState = null; // { startX, startY, dragging }
+  var selectionRectEl = null;
 
   // --- Styles ---
   var styleEl = document.createElement('style');
@@ -91,6 +93,10 @@ export function buildOverlayScript(port: number): string {
     '}',
     '.relay-annotate-selector-info {',
     '  font-size: 11px; color: #888; margin-bottom: 6px; word-break: break-all;',
+    '}',
+    '.relay-annotate-selection-rect {',
+    '  position: fixed; border: 2px solid #7C3AED; background: rgba(124, 58, 237, 0.10);',
+    '  z-index: 999996; pointer-events: none; display: none;',
     '}',
   ].join('\\n');
   document.head.appendChild(styleEl);
@@ -223,6 +229,12 @@ export function buildOverlayScript(port: number): string {
   highlightEl.setAttribute('data-relay-ignore', 'true');
   document.body.appendChild(highlightEl);
 
+  // Selection rectangle
+  selectionRectEl = document.createElement('div');
+  selectionRectEl.className = 'relay-annotate-selection-rect';
+  selectionRectEl.setAttribute('data-relay-ignore', 'true');
+  document.body.appendChild(selectionRectEl);
+
   // Toggle button
   toggleBtn = document.createElement('button');
   toggleBtn.className = 'relay-annotate-btn';
@@ -241,6 +253,8 @@ export function buildOverlayScript(port: number): string {
     if (!active) {
       highlightEl.style.display = 'none';
       hoveredEl = null;
+      dragState = null;
+      selectionRectEl.style.display = 'none';
       closePopover();
     }
   }
@@ -250,10 +264,9 @@ export function buildOverlayScript(port: number): string {
     setAnnotationMode(!annotationMode);
   });
 
-  // --- Highlight on hover ---
-  document.addEventListener('mousemove', function(e) {
-    if (!annotationMode) return;
-    var target = document.elementFromPoint(e.clientX, e.clientY);
+  // --- Highlight on hover (used when not dragging) ---
+  function updateHighlight(clientX, clientY) {
+    var target = document.elementFromPoint(clientX, clientY);
     if (!target || target.closest('[data-relay-ignore]')) {
       highlightEl.style.display = 'none';
       hoveredEl = null;
@@ -266,7 +279,7 @@ export function buildOverlayScript(port: number): string {
     highlightEl.style.top = rect.top + 'px';
     highlightEl.style.width = rect.width + 'px';
     highlightEl.style.height = rect.height + 'px';
-  }, true);
+  }
 
   // --- Popover helpers ---
   function closePopover() {
@@ -445,30 +458,199 @@ export function buildOverlayScript(port: number): string {
     textarea.focus();
   }
 
+  // --- Find elements in a rectangle ---
+  var SKIP_TAGS = ['HTML', 'HEAD', 'BODY', 'SCRIPT', 'STYLE', 'LINK', 'META', 'NOSCRIPT', 'BR', 'HR'];
+  var MAX_DRAG_ELEMENTS = 50;
+
+  function rectsIntersect(a, b) {
+    return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+  }
+
+  function findElementsInRect(selRect) {
+    var all = document.querySelectorAll('*');
+    var matched = [];
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (el.hasAttribute('data-relay-ignore')) continue;
+      if (SKIP_TAGS.indexOf(el.tagName) !== -1) continue;
+      var r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      // Check visibility
+      if (typeof el.checkVisibility === 'function') {
+        if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) continue;
+      }
+      if (!rectsIntersect(selRect, r)) continue;
+      matched.push(el);
+    }
+    // Remove ancestors: keep only leaf-most elements
+    var filtered = matched.filter(function(el) {
+      for (var j = 0; j < matched.length; j++) {
+        if (matched[j] !== el && el.contains(matched[j])) return false;
+      }
+      return true;
+    });
+    return filtered.slice(0, MAX_DRAG_ELEMENTS);
+  }
+
+  // --- Multi-element popover (drag selection) ---
+  function showMultiCreatePopover(elements, anchorRect) {
+    closePopover();
+
+    var popover = document.createElement('div');
+    popover.className = 'relay-annotate-popover';
+    popover.setAttribute('data-relay-ignore', 'true');
+
+    var info = document.createElement('div');
+    info.className = 'relay-annotate-selector-info';
+    info.textContent = elements.length + ' element' + (elements.length !== 1 ? 's' : '') + ' selected';
+    popover.appendChild(info);
+
+    var textarea = document.createElement('textarea');
+    textarea.placeholder = 'Add feedback... (Enter to save, Shift+Enter for new line)';
+    popover.appendChild(textarea);
+
+    var actions = document.createElement('div');
+    actions.className = 'relay-annotate-popover-actions';
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', function(e) { e.stopPropagation(); closePopover(); });
+
+    var saveBtn = document.createElement('button');
+    saveBtn.textContent = 'Save (' + elements.length + ')';
+    saveBtn.className = 'primary';
+
+    textarea.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        saveBtn.click();
+      }
+    });
+
+    saveBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var text = textarea.value.trim();
+      if (!text) return;
+      saveBtn.disabled = true;
+      var promises = elements.map(function(el) {
+        var rect = el.getBoundingClientRect();
+        var selectorResult = generateSelector(el);
+        var reactSource = getReactSource(el);
+        return createAnnotation({
+          url: location.pathname,
+          selector: selectorResult.selector,
+          selectorConfidence: selectorResult.confidence,
+          text: text,
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          reactSource: reactSource,
+          elementRect: {
+            x: Math.round(rect.x),
+            y: Math.round(rect.y),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          },
+        });
+      });
+      Promise.all(promises).then(function() {
+        closePopover();
+        refreshAnnotations();
+      }).catch(function(err) { console.error('Multi-annotation save failed:', err); saveBtn.disabled = false; });
+    });
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(saveBtn);
+    popover.appendChild(actions);
+
+    document.body.appendChild(popover);
+    popoverEl = popover;
+    positionPopover(popover, anchorRect);
+    textarea.focus();
+  }
+
   // --- Event handlers for annotation mode ---
-  // Block mousedown/pointerdown in capture phase to prevent the app from
-  // reacting (e.g. closing modals) before our click handler fires.
+  // --- Unified pointer event system for click + drag ---
+  var DRAG_THRESHOLD = 5; // px — movement beyond this = drag
+
+  document.addEventListener('pointerdown', function(e) {
+    if (!annotationMode) return;
+    if (e.target.closest('[data-relay-ignore]')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragState = { startX: e.clientX, startY: e.clientY, dragging: false };
+  }, true);
+
+  document.addEventListener('pointermove', function(e) {
+    if (!annotationMode) return;
+    if (e.target.closest && !e.target.closest('[data-relay-ignore]')) {
+      e.preventDefault();
+    }
+    if (dragState) {
+      var dx = e.clientX - dragState.startX;
+      var dy = e.clientY - dragState.startY;
+      if (!dragState.dragging && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+        dragState.dragging = true;
+        highlightEl.style.display = 'none';
+        hoveredEl = null;
+      }
+      if (dragState.dragging) {
+        var left = Math.min(dragState.startX, e.clientX);
+        var top = Math.min(dragState.startY, e.clientY);
+        var width = Math.abs(e.clientX - dragState.startX);
+        var height = Math.abs(e.clientY - dragState.startY);
+        selectionRectEl.style.display = 'block';
+        selectionRectEl.style.left = left + 'px';
+        selectionRectEl.style.top = top + 'px';
+        selectionRectEl.style.width = width + 'px';
+        selectionRectEl.style.height = height + 'px';
+        return;
+      }
+    }
+    // Not dragging — do single-element highlight
+    updateHighlight(e.clientX, e.clientY);
+  }, true);
+
+  document.addEventListener('pointerup', function(e) {
+    if (!annotationMode) return;
+    if (e.target.closest('[data-relay-ignore]') && !dragState) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (dragState && dragState.dragging) {
+      // Drag completed — find elements in selection rectangle
+      var selRect = {
+        left: Math.min(dragState.startX, e.clientX),
+        top: Math.min(dragState.startY, e.clientY),
+        right: Math.max(dragState.startX, e.clientX),
+        bottom: Math.max(dragState.startY, e.clientY),
+      };
+      selectionRectEl.style.display = 'none';
+      dragState = null;
+      var elements = findElementsInRect(selRect);
+      if (elements.length === 0) return;
+      if (elements.length === 1) {
+        showCreatePopover(elements[0]);
+      } else {
+        showMultiCreatePopover(elements, selRect);
+      }
+    } else {
+      // Click — single element
+      dragState = null;
+      var target = document.elementFromPoint(e.clientX, e.clientY);
+      if (!target || target.closest('[data-relay-ignore]')) return;
+      showCreatePopover(target);
+    }
+  }, true);
+
+  // Block mousedown/touchstart/click to prevent app from reacting
   function blockEventInAnnotationMode(e) {
     if (!annotationMode) return;
     if (e.target.closest('[data-relay-ignore]')) return;
     e.preventDefault();
     e.stopPropagation();
   }
-  document.addEventListener('pointerdown', blockEventInAnnotationMode, true);
   document.addEventListener('mousedown', blockEventInAnnotationMode, true);
   document.addEventListener('touchstart', blockEventInAnnotationMode, true);
-
-  document.addEventListener('click', function(e) {
-    if (!annotationMode) return;
-    var target = e.target;
-
-    // Ignore clicks on our own UI
-    if (target.closest('[data-relay-ignore]')) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-    showCreatePopover(target);
-  }, true);
+  document.addEventListener('click', blockEventInAnnotationMode, true);
 
   // --- Pin rendering ---
   function clearBadges() {
@@ -608,9 +790,12 @@ export function buildOverlayScript(port: number): string {
       e.preventDefault();
       setAnnotationMode(!annotationMode);
     }
-    // Escape to exit mode or close popover
+    // Escape: cancel drag > close popover > exit mode
     if (e.key === 'Escape') {
-      if (popoverEl) {
+      if (dragState && dragState.dragging) {
+        dragState = null;
+        selectionRectEl.style.display = 'none';
+      } else if (popoverEl) {
         closePopover();
       } else if (annotationMode) {
         setAnnotationMode(false);
