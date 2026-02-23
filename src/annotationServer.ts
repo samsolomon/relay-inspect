@@ -1,5 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
+import { parseIntWithDefault } from "./cdp-client.js";
 
 // --- Types ---
 
@@ -59,6 +60,7 @@ function jsonResponse(res: ServerResponse, status: number, body: unknown, req?: 
   res.end(data);
 }
 
+const MAX_ANNOTATIONS = 50;
 const MAX_BODY_BYTES = 64 * 1024; // 64KB
 const MAX_TEXT_LENGTH = 10 * 1024; // 10KB
 const MAX_VIEWPORT_DIM = 100_000;
@@ -162,7 +164,7 @@ export class AnnotationServer {
       return this.port!;
     }
 
-    const basePort = parseInt(process.env.ANNOTATION_PORT ?? "9223", 10);
+    const basePort = parseIntWithDefault(process.env.ANNOTATION_PORT, 9223);
     const portsToTry = [basePort, basePort + 1, basePort + 2, basePort + 3];
 
     for (const port of portsToTry) {
@@ -276,6 +278,11 @@ export class AnnotationServer {
 
       // POST /annotations — create
       if (method === "POST" && path === "/annotations") {
+        if (this.annotations.size >= MAX_ANNOTATIONS) {
+          jsonResponse(res, 429, { error: `Maximum of ${MAX_ANNOTATIONS} annotations reached. Resolve or delete existing annotations first.` }, req);
+          return;
+        }
+
         const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
         const now = new Date().toISOString();
 

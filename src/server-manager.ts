@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from "node:child_process";
 import treeKill from "tree-kill";
-import { CircularBuffer } from "./cdp-client.js";
+import { CircularBuffer, parseIntWithDefault } from "./cdp-client.js";
 
 // --- Types ---
 
@@ -24,7 +24,7 @@ interface ManagedServer {
 
 // --- Config ---
 
-const LOG_BUFFER_SIZE = parseInt(process.env.SERVER_LOG_BUFFER_SIZE ?? "1000", 10);
+const LOG_BUFFER_SIZE = parseIntWithDefault(process.env.SERVER_LOG_BUFFER_SIZE, 1000);
 
 // --- Server Manager ---
 

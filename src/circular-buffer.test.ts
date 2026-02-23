@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CircularBuffer } from "./cdp-client.js";
+import { CircularBuffer, parseIntWithDefault } from "./cdp-client.js";
 
 describe("CircularBuffer", () => {
   it("pushes and peeks items", () => {
@@ -124,5 +124,27 @@ describe("CircularBuffer", () => {
       expect(result).toEqual([]);
       expect(buf.length).toBe(0);
     });
+  });
+});
+
+describe("parseIntWithDefault", () => {
+  it("returns parsed integer for valid string", () => {
+    expect(parseIntWithDefault("42", 10)).toBe(42);
+  });
+
+  it("returns default for undefined", () => {
+    expect(parseIntWithDefault(undefined, 10)).toBe(10);
+  });
+
+  it("returns default for NaN-producing string", () => {
+    expect(parseIntWithDefault("not-a-number", 10)).toBe(10);
+  });
+
+  it("returns default for empty string", () => {
+    expect(parseIntWithDefault("", 10)).toBe(10);
+  });
+
+  it("parses leading digits from mixed strings", () => {
+    expect(parseIntWithDefault("123abc", 10)).toBe(123);
   });
 });

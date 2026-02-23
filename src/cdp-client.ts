@@ -83,52 +83,82 @@ export function chooseDefaultTarget(pageTargets: PageTarget[]): PageTarget | und
 // --- Circular Buffer ---
 
 export class CircularBuffer<T> {
-  private buffer: T[] = [];
+  private items: (T | undefined)[];
+  private head = 0;
+  private count = 0;
   private maxSize: number;
 
   constructor(maxSize: number) {
     this.maxSize = maxSize;
+    this.items = new Array<T | undefined>(maxSize);
   }
 
   push(item: T): void {
-    this.buffer.push(item);
-    if (this.buffer.length > this.maxSize) {
-      this.buffer.shift();
+    const tail = (this.head + this.count) % this.maxSize;
+    this.items[tail] = item;
+    if (this.count < this.maxSize) {
+      this.count++;
+    } else {
+      // Overwrite oldest — advance head
+      this.head = (this.head + 1) % this.maxSize;
     }
   }
 
   drain(): T[] {
-    const items = this.buffer;
-    this.buffer = [];
-    return items;
+    const result = this.toArray();
+    this.head = 0;
+    this.count = 0;
+    this.items = new Array<T | undefined>(this.maxSize);
+    return result;
   }
 
   drainWhere(predicate: (item: T) => boolean): T[] {
     const matched: T[] = [];
-    const remaining: T[] = [];
-    for (const item of this.buffer) {
-      (predicate(item) ? matched : remaining).push(item);
+    const kept: T[] = [];
+    for (let i = 0; i < this.count; i++) {
+      const item = this.items[(this.head + i) % this.maxSize] as T;
+      (predicate(item) ? matched : kept).push(item);
     }
-    this.buffer = remaining;
+    // Rebuild ring from kept items
+    this.items = new Array<T | undefined>(this.maxSize);
+    this.head = 0;
+    this.count = kept.length;
+    for (let i = 0; i < kept.length; i++) {
+      this.items[i] = kept[i];
+    }
     return matched;
   }
 
   peek(): T[] {
-    return [...this.buffer];
+    return this.toArray();
   }
 
   get length(): number {
-    return this.buffer.length;
+    return this.count;
+  }
+
+  private toArray(): T[] {
+    const result: T[] = [];
+    for (let i = 0; i < this.count; i++) {
+      result.push(this.items[(this.head + i) % this.maxSize] as T);
+    }
+    return result;
   }
 }
 
 // --- Config ---
 
+export function parseIntWithDefault(value: string | undefined, defaultValue: number): number {
+  if (value === undefined) return defaultValue;
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) ? defaultValue : parsed;
+}
+
 export const config = {
   host: process.env.CHROME_DEBUG_HOST ?? "localhost",
-  port: parseInt(process.env.CHROME_DEBUG_PORT ?? "9222", 10),
-  consoleBufferSize: parseInt(process.env.CONSOLE_BUFFER_SIZE ?? "500", 10),
-  networkBufferSize: parseInt(process.env.NETWORK_BUFFER_SIZE ?? "200", 10),
+  port: parseIntWithDefault(process.env.CHROME_DEBUG_PORT, 9222),
+  consoleBufferSize: parseIntWithDefault(process.env.CONSOLE_BUFFER_SIZE, 500),
+  networkBufferSize: parseIntWithDefault(process.env.NETWORK_BUFFER_SIZE, 200),
 };
 
 // --- Pending network request tracking ---

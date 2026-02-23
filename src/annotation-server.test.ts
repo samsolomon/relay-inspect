@@ -299,6 +299,63 @@ describe("AnnotationServer HTTP", () => {
   });
 });
 
+// --- Annotation cap tests ---
+
+describe("Annotation cap", () => {
+  let srv: AnnotationServer;
+  let port: number;
+  let url: string;
+
+  beforeAll(async () => {
+    srv = new AnnotationServer();
+    process.env.ANNOTATION_PORT = "19225";
+    try {
+      port = await srv.start();
+    } finally {
+      delete process.env.ANNOTATION_PORT;
+    }
+    url = `http://127.0.0.1:${port}`;
+  });
+
+  afterAll(async () => {
+    await srv.shutdown();
+  });
+
+  it("rejects creation after 50 annotations and allows after deletion", async () => {
+    // Create 50 annotations
+    const ids: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      const res = await fetch(`${url}/annotations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: `ann-${i}`, viewport: { width: 800, height: 600 } }),
+      });
+      expect(res.status).toBe(201);
+      const { id } = await res.json();
+      ids.push(id);
+    }
+
+    // 51st should be rejected with 429
+    const rejected = await fetch(`${url}/annotations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "overflow", viewport: { width: 800, height: 600 } }),
+    });
+    expect(rejected.status).toBe(429);
+
+    // Delete one, then creating should succeed again
+    const delRes = await fetch(`${url}/annotations/${ids[0]}`, { method: "DELETE" });
+    expect(delRes.status).toBe(200);
+
+    const afterDelete = await fetch(`${url}/annotations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "after-delete", viewport: { width: 800, height: 600 } }),
+    });
+    expect(afterDelete.status).toBe(201);
+  });
+});
+
 // --- consumeSentState tests ---
 
 describe("consumeSentState", () => {

@@ -460,9 +460,10 @@ server.tool(
     selector: z.string().describe("CSS selector to query"),
     limit: z
       .number()
+      .max(500)
       .optional()
       .default(10)
-      .describe("Maximum number of elements to return (default: 10)"),
+      .describe("Maximum number of elements to return (default: 10, max: 500)"),
   },
   async ({ selector, limit }) => {
     let client: CDP.Client;
@@ -670,11 +671,11 @@ server.tool(
     // Validate URL scheme
     try {
       const parsed = new URL(url);
-      if (!["http:", "https:", "file:"].includes(parsed.protocol)) {
+      if (!["http:", "https:"].includes(parsed.protocol)) {
         return withAnnotationCount({
           content: [{
             type: "text",
-            text: JSON.stringify({ error: `Unsupported URL scheme: ${parsed.protocol}. Only http, https, and file are allowed.` }, null, 2),
+            text: JSON.stringify({ error: `Unsupported URL scheme: ${parsed.protocol}. Only http and https are allowed.` }, null, 2),
           }],
           isError: true,
         });
