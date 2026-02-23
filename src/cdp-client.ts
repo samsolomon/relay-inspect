@@ -256,7 +256,6 @@ export class CDPClient {
 
   /**
    * Register a callback that fires after every successful connection.
-   * Used to auto-inject the annotation overlay.
    */
   onConnect(cb: (client: CDP.Client) => Promise<void>): void {
     this.onConnectCallback = cb;
@@ -264,7 +263,6 @@ export class CDPClient {
 
   /**
    * Register a callback that fires after page navigations (frameNavigated).
-   * Used to re-inject the annotation overlay after the DOM is replaced.
    */
   onNavigate(cb: (client: CDP.Client) => Promise<void>): void {
     this.onNavigateCallback = cb;
@@ -655,7 +653,7 @@ export class CDPClient {
       });
     });
 
-    // Page load — re-inject overlay after DOM is replaced by navigation/reload
+    // Page load — fire onNavigate callback after DOM is replaced by navigation/reload
     client.Page.loadEventFired(() => {
       if (!this.onNavigateCallback || !this.client) return;
       this.onNavigateCallback(this.client).catch((err) => {

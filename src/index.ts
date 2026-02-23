@@ -5,7 +5,6 @@ import CDP from "chrome-remote-interface";
 import { cdpClient, config, isInternalTargetUrl } from "./cdp-client.js";
 import { isAutoLaunchEnabled, findChromePath } from "./chrome-launcher.js";
 import { serverManager } from "./server-manager.js";
-import { annotationServer, buildOverlayScript, getAnnotationPort } from "relay-annotations";
 
 // --- Crash Guards ---
 // Register before any async work. CDP operations can reject at any time
@@ -25,69 +24,14 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
-// --- Auto-inject annotation overlay ---
-
-async function injectOverlay(client: CDP.Client): Promise<void> {
-  const port = await annotationServer.start();
-  const script = buildOverlayScript(port);
-  await client.Runtime.evaluate({
-    expression: script,
-    returnByValue: true,
-    awaitPromise: false,
-  });
-  console.error("[relay-inspect] Annotation overlay injected.");
-}
-
-// Inject on new CDP connection
-cdpClient.onConnect(injectOverlay);
-
-// Re-inject after page navigations (DOM is replaced, injected script is gone)
-cdpClient.onNavigate(injectOverlay);
-
-// --- Screenshot callback for annotation server ---
-
-annotationServer.onScreenshot(async (rect) => {
-  try {
-    const client = await cdpClient.ensureConnected();
-    const dpr = await client.Runtime.evaluate({ expression: "window.devicePixelRatio", returnByValue: true });
-    const scale = (dpr.result.value as number) ?? 1;
-    const result = await client.Page.captureScreenshot({
-      format: "png",
-      clip: {
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-        scale,
-      },
-    });
-    return "data:image/png;base64," + result.data;
-  } catch (err) {
-    console.error(`[relay-inspect] Screenshot capture error: ${err instanceof Error ? err.message : err}`);
-    return null;
-  }
-});
-
-// --- "Send to AI" notification callback ---
-
-annotationServer.onSendNotify((count) => {
-  server.sendLoggingMessage({
-    level: "info",
-    logger: "annotations",
-    data: count > 0
-      ? `User clicked "Send to AI" with ${count} open annotation(s). Check your pending wait_for_send result, or call list_annotations to review.`
-      : `User clicked "Send to AI" but no open annotations remain.`,
-  }).catch(() => { /* ignore if not connected */ });
-});
-
 // --- Helper ---
 
 function connectionError(err: unknown) {
   const message = err instanceof Error ? err.message : String(err);
   const autoLaunch = isAutoLaunchEnabled();
-  return withAnnotationCount({
+  return {
     content: [{
-      type: "text",
+      type: "text" as const,
       text: JSON.stringify({
         error: `Chrome connection failed: ${message}`,
         hint: autoLaunch
@@ -96,94 +40,7 @@ function connectionError(err: unknown) {
       }, null, 2),
     }],
     isError: true,
-  });
-}
-
-// --- Processing state tracking ---
-
-let previousWaitForSendTriggered = false;
-
-/** Best-effort push of processing state to the browser overlay via CDP.
- *  Uses passive `isConnected` check to avoid triggering auto-launch. */
-function injectProcessingState(state: "idle" | "processing" | "done"): void {
-  if (!cdpClient.isConnected) return;
-  cdpClient.ensureConnected().then((client) => {
-    client.Runtime.evaluate({
-      expression: `if (typeof window.__relaySetProcessingState === 'function') window.__relaySetProcessingState('${state}');`,
-      returnByValue: true,
-      awaitPromise: false,
-    }).catch(() => { /* best-effort */ });
-  }).catch(() => { /* not connected — skip */ });
-}
-
-// --- Passive annotation count wrapper ---
-
-function withAnnotationCount(
-  result: { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; isError?: boolean },
-) {
-  const port = getAnnotationPort();
-  if (port === null) return result;
-
-  const openAnnotations = annotationServer
-    .getAnnotations()
-    .filter((a) => a.status === "open");
-
-  // Check if the user clicked "Send to AI" — deliver full annotations inline
-  const sentTriggered = annotationServer.consumeSentState();
-
-  // Signal "done" from a previous processing cycle (before starting new work)
-  if (previousWaitForSendTriggered && !sentTriggered) {
-    previousWaitForSendTriggered = false;
-    injectProcessingState("done");
-  }
-
-  if (openAnnotations.length === 0 && !sentTriggered) return result;
-
-  if (sentTriggered) {
-    const annotationBlocks = formatAnnotations(openAnnotations);
-    result.content.push(...annotationBlocks);
-
-    // Signal "processing" to the overlay
-    previousWaitForSendTriggered = true;
-    injectProcessingState("processing");
-
-    // Fire-and-forget auto-resolve: remove badges + delete annotations
-    (async () => {
-      try {
-        const client = await cdpClient.ensureConnected();
-        const safeIds = openAnnotations.map((a) => a.id.replace(/[^a-f0-9-]/gi, ""));
-        await client.Runtime.evaluate({
-          expression: `(function() {
-            ${safeIds.map((id) => `var p = document.querySelector('[data-relay-annotation-id="${id}"]'); if (p) p.remove();`).join("\n")}
-            if (typeof window.__relayAnnotateRefresh === 'function') window.__relayAnnotateRefresh();
-            return true;
-          })()`,
-          returnByValue: true,
-          awaitPromise: false,
-        });
-      } catch { /* best-effort */ }
-      for (const a of openAnnotations) {
-        annotationServer.deleteAnnotation(a.id);
-      }
-    })();
-
-    return result;
-  }
-
-  // Otherwise just append the pending count
-  for (const block of result.content) {
-    if (block.type === "text" && block.text) {
-      try {
-        const parsed = JSON.parse(block.text);
-        parsed.pending_annotations = openAnnotations.length;
-        block.text = JSON.stringify(parsed, null, 2);
-        break;
-      } catch {
-        /* not JSON — skip */
-      }
-    }
-  }
-  return result;
+  };
 }
 
 // --- Tool: check_connection ---
@@ -215,9 +72,9 @@ server.tool(
       result.hint = isAutoLaunchEnabled()
         ? "Chrome will be auto-launched on the next tool call, or launch it manually with: chrome --remote-debugging-port=" + config.port
         : "Launch Chrome with: chrome --remote-debugging-port=" + config.port;
-      return withAnnotationCount({
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      });
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+      };
     }
 
     // Step 2: Enumerate targets
@@ -240,9 +97,9 @@ server.tool(
       result.status = "Chrome is reachable but target enumeration failed";
     }
 
-    return withAnnotationCount({
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-    });
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+    };
   },
 );
 
@@ -250,7 +107,7 @@ server.tool(
 
 server.tool(
   "connect_to_page",
-  "Connect to a specific Chrome page target by ID or URL pattern. The annotation overlay is auto-injected on connect.",
+  "Connect to a specific Chrome page target by ID or URL pattern.",
   {
     id: z
       .string()
@@ -276,23 +133,23 @@ server.tool(
     const normalizedPattern = (urlPattern ?? url_pattern)?.trim();
 
     if (normalizedId && normalizedPattern) {
-      return withAnnotationCount({
+      return {
         content: [{
-          type: "text",
+          type: "text" as const,
           text: JSON.stringify({ error: "Provide either id or urlPattern/url_pattern, not both." }, null, 2),
         }],
         isError: true,
-      });
+      };
     }
 
     if (!normalizedId && !normalizedPattern) {
-      return withAnnotationCount({
+      return {
         content: [{
-          type: "text",
+          type: "text" as const,
           text: JSON.stringify({ error: "Provide id or urlPattern/url_pattern." }, null, 2),
         }],
         isError: true,
-      });
+      };
     }
 
     try {
@@ -302,26 +159,25 @@ server.tool(
         waitForMs,
       });
 
-      return withAnnotationCount({
+      return {
         content: [{
-          type: "text",
+          type: "text" as const,
           text: JSON.stringify(
             {
               success: true,
               connected_target: selected,
-              hint: "The annotation overlay has been auto-injected. Users can annotate elements and click 'Send to AI' — call wait_for_send when asked.",
             },
             null,
             2,
           ),
         }],
-      });
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return withAnnotationCount({
-        content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ error: message }, null, 2) }],
         isError: true,
-      });
+      };
     }
   },
 );
@@ -352,27 +208,27 @@ server.tool(
         const text = result.exceptionDetails.exception?.description
           ?? result.exceptionDetails.text
           ?? "Unknown error";
-        return withAnnotationCount({
+        return {
           content: [{
-            type: "text",
+            type: "text" as const,
             text: JSON.stringify({ error: text }, null, 2),
           }],
           isError: true,
-        });
+        };
       }
 
-      return withAnnotationCount({
+      return {
         content: [{
-          type: "text",
+          type: "text" as const,
           text: JSON.stringify({ result: result.result.value }, null, 2),
         }],
-      });
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return withAnnotationCount({
-        content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ error: message }, null, 2) }],
         isError: true,
-      });
+      };
     }
   },
 );
@@ -400,12 +256,12 @@ server.tool(
       ? cdpClient.consoleLogs.drain()
       : cdpClient.consoleLogs.peek();
 
-    return withAnnotationCount({
+    return {
       content: [{
-        type: "text",
+        type: "text" as const,
         text: JSON.stringify({ count: entries.length, entries }, null, 2),
       }],
-    });
+    };
   },
 );
 
@@ -441,12 +297,12 @@ server.tool(
       entries = clear ? cdpClient.networkRequests.drain() : cdpClient.networkRequests.peek();
     }
 
-    return withAnnotationCount({
+    return {
       content: [{
-        type: "text",
+        type: "text" as const,
         text: JSON.stringify({ count: entries.length, entries }, null, 2),
       }],
-    });
+    };
   },
 );
 
@@ -480,16 +336,16 @@ server.tool(
       });
 
       if (result.nodeIds.length === 0) {
-        return withAnnotationCount({
+        return {
           content: [{
-            type: "text",
+            type: "text" as const,
             text: JSON.stringify(
               { count: 0, elements: [], message: `No elements matched selector: "${selector}"` },
               null,
               2,
             ),
           }],
-        });
+        };
       }
 
       const nodeIds = result.nodeIds.slice(0, limit);
@@ -505,22 +361,22 @@ server.tool(
         }
       }
 
-      return withAnnotationCount({
+      return {
         content: [{
-          type: "text",
+          type: "text" as const,
           text: JSON.stringify(
             { count: elements.length, total_matches: result.nodeIds.length, elements },
             null,
             2,
           ),
         }],
-      });
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return withAnnotationCount({
-        content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ error: message }, null, 2) }],
         isError: true,
-      });
+      };
     }
   },
 );
@@ -553,16 +409,16 @@ server.tool(
     // Capture what arrived during the wait
     const entries = cdpClient.consoleLogs.drain();
 
-    return withAnnotationCount({
+    return {
       content: [{
-        type: "text",
+        type: "text" as const,
         text: JSON.stringify(
           { waited_seconds: seconds, count: entries.length, entries },
           null,
           2,
         ),
       }],
-    });
+    };
   },
 );
 
@@ -604,7 +460,7 @@ server.tool(
 
       return {
         content: [{
-          type: "image",
+          type: "image" as const,
           data: result.data,
           mimeType: format === "png" ? "image/png" : "image/jpeg",
         }],
@@ -612,7 +468,7 @@ server.tool(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
-        content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+        content: [{ type: "text" as const, text: JSON.stringify({ error: message }, null, 2) }],
         isError: true,
       };
     }
@@ -642,18 +498,18 @@ server.tool(
     try {
       await client.Page.reload({ ignoreCache });
 
-      return withAnnotationCount({
+      return {
         content: [{
-          type: "text",
+          type: "text" as const,
           text: JSON.stringify({ success: true, ignoreCache }, null, 2),
         }],
-      });
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return withAnnotationCount({
-        content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ error: message }, null, 2) }],
         isError: true,
-      });
+      };
     }
   },
 );
@@ -671,22 +527,22 @@ server.tool(
     try {
       const parsed = new URL(url);
       if (!["http:", "https:"].includes(parsed.protocol)) {
-        return withAnnotationCount({
+        return {
           content: [{
-            type: "text",
+            type: "text" as const,
             text: JSON.stringify({ error: `Unsupported URL scheme: ${parsed.protocol}. Only http and https are allowed.` }, null, 2),
           }],
           isError: true,
-        });
+        };
       }
     } catch {
-      return withAnnotationCount({
+      return {
         content: [{
-          type: "text",
+          type: "text" as const,
           text: JSON.stringify({ error: `Invalid URL: ${url}` }, null, 2),
         }],
         isError: true,
-      });
+      };
     }
 
     let client: CDP.Client;
@@ -700,27 +556,27 @@ server.tool(
       const result = await client.Page.navigate({ url });
 
       if (result.errorText) {
-        return withAnnotationCount({
+        return {
           content: [{
-            type: "text",
+            type: "text" as const,
             text: JSON.stringify({ error: `Navigation failed: ${result.errorText}`, url }, null, 2),
           }],
           isError: true,
-        });
+        };
       }
 
-      return withAnnotationCount({
+      return {
         content: [{
-          type: "text",
+          type: "text" as const,
           text: JSON.stringify({ success: true, url, frameId: result.frameId }, null, 2),
         }],
-      });
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return withAnnotationCount({
-        content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ error: message }, null, 2) }],
         isError: true,
-      });
+      };
     }
   },
 );
@@ -781,12 +637,12 @@ server.tool(
       detail.requestBody = null;
     }
 
-    return withAnnotationCount({
+    return {
       content: [{
-        type: "text",
+        type: "text" as const,
         text: JSON.stringify(detail, null, 2),
       }],
-    });
+    };
   },
 );
 
@@ -831,31 +687,30 @@ server.tool(
           urlPattern: urlPattern.trim(),
           waitForMs: connectWaitForMs,
         });
-        return withAnnotationCount({
+        return {
           content: [{
-            type: "text",
+            type: "text" as const,
             text: JSON.stringify({
               ...result,
               connected_target: connected,
-              hint: "The annotation overlay has been auto-injected. Users can annotate elements and click 'Send to AI' — call wait_for_send when asked.",
             }, null, 2),
           }],
-        });
+        };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return withAnnotationCount({
+        return {
           content: [{
-            type: "text",
+            type: "text" as const,
             text: JSON.stringify({ ...result, connect_error: message }, null, 2),
           }],
           isError: true,
-        });
+        };
       }
     }
 
-    return withAnnotationCount({
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-    });
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+    };
   },
 );
 
@@ -874,9 +729,9 @@ server.tool(
   },
   async ({ id, clear }) => {
     const result = serverManager.getLogs(id, clear);
-    return withAnnotationCount({
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-    });
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+    };
   },
 );
 
@@ -890,9 +745,9 @@ server.tool(
   },
   async ({ id }) => {
     const result = await serverManager.stop(id);
-    return withAnnotationCount({
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-    });
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+    };
   },
 );
 
@@ -904,313 +759,9 @@ server.tool(
   {},
   async () => {
     const servers = serverManager.list();
-    return withAnnotationCount({
-      content: [{ type: "text", text: JSON.stringify({ servers }, null, 2) }],
-    });
-  },
-);
-
-// --- Tool: inject_annotation_overlay ---
-
-server.tool(
-  "inject_annotation_overlay",
-  "Re-inject the annotation overlay into the current browser page. The overlay is auto-injected on every Chrome connection — this tool is only needed if the page was navigated via a full reload that cleared the injected script. Safe to call repeatedly (idempotent).",
-  {},
-  async () => {
-    // Lazy-start annotation server
-    let port: number;
-    try {
-      port = await annotationServer.start();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ error: `Annotation server failed to start: ${message}` }, null, 2) }],
-        isError: true,
-      };
-    }
-
-    let client: CDP.Client;
-    try {
-      client = await cdpClient.ensureConnected();
-    } catch (err) {
-      return connectionError(err);
-    }
-
-    try {
-      const script = buildOverlayScript(port);
-      const result = await client.Runtime.evaluate({
-        expression: script,
-        returnByValue: true,
-        awaitPromise: false,
-      });
-
-      if (result.exceptionDetails) {
-        const text = result.exceptionDetails.exception?.description
-          ?? result.exceptionDetails.text
-          ?? "Unknown error";
-        return {
-          content: [{ type: "text", text: JSON.stringify({ error: `Overlay injection failed: ${text}` }, null, 2) }],
-          isError: true,
-        };
-      }
-
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            success: true,
-            port,
-            message: result.result.value,
-            hint: "The annotation overlay is now active. Users can click the pencil button (bottom-right) or press Shift+A to start annotating elements. Call wait_for_send when the user asks.",
-          }, null, 2),
-        }],
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
-        isError: true,
-      };
-    }
-  },
-);
-
-// --- Annotation formatting helper (shared by list_annotations and wait_for_send) ---
-
-type AnnotationContentBlock = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
-
-function formatAnnotations(items: ReturnType<typeof annotationServer.getAnnotations>): AnnotationContentBlock[] {
-  const content: AnnotationContentBlock[] = [];
-
-  content.push({ type: "text", text: `${items.length} annotation(s):` });
-
-  for (let i = 0; i < items.length; i++) {
-    const a = items[i];
-    const num = i + 1;
-    const conf = a.selectorConfidence === "stable" ? "stable" : "fragile";
-    const lines = [
-      `#${num} [${a.status.toUpperCase()}] id: ${a.id}`,
-      `   Page: ${a.url}`,
-      `   Selector (${conf}): ${a.selector}`,
-      a.reactSource
-        ? `   Component: ${a.reactSource.component}${a.reactSource.source ? ` (${a.reactSource.source})` : ""}`
-        : null,
-      `   Viewport: ${a.viewport.width}x${a.viewport.height}`,
-      `   Feedback: ${a.text}`,
-      `   Created: ${a.createdAt}`,
-    ].filter(Boolean).join("\n");
-
-    content.push({ type: "text", text: lines });
-
-    if (a.screenshot) {
-      const base64 = a.screenshot.replace(/^data:image\/\w+;base64,/, "");
-      content.push({ type: "image", data: base64, mimeType: "image/png" });
-    }
-  }
-
-  return content;
-}
-
-// --- Tool: list_annotations ---
-
-server.tool(
-  "list_annotations",
-  "List all annotations pinned by the user in the browser overlay",
-  {},
-  async () => {
-    const port = getAnnotationPort();
-    if (port === null) {
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            error: "Annotation server is not running. It starts automatically when Chrome connects — try any browser tool first to trigger a connection.",
-          }, null, 2),
-        }],
-        isError: true,
-      };
-    }
-
-    const items = annotationServer.getAnnotations();
-
-    if (items.length === 0) {
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            count: 0,
-            message: "No annotations found.",
-          }, null, 2),
-        }],
-      };
-    }
-
-    return { content: formatAnnotations(items) };
-  },
-);
-
-// --- Tool: resolve_annotation ---
-
-server.tool(
-  "resolve_annotation",
-  "Mark an annotation as resolved after addressing the user's feedback",
-  {
-    id: z.string().describe("The annotation ID to resolve"),
-  },
-  async ({ id }) => {
-    const port = getAnnotationPort();
-    if (port === null) {
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            error: "Annotation server is not running. It starts automatically when Chrome connects — try any browser tool first to trigger a connection.",
-          }, null, 2),
-        }],
-        isError: true,
-      };
-    }
-
-    const annotation = annotationServer.getAnnotation(id);
-    if (!annotation) {
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({ error: `Annotation "${id}" not found.` }, null, 2),
-        }],
-        isError: true,
-      };
-    }
-
-    // Delete from server first so the browser refresh sees updated state
-    annotationServer.deleteAnnotation(id);
-
-    // Remove the badge from the browser and refresh the overlay
-    try {
-      const client = await cdpClient.ensureConnected();
-      const safeId = id.replace(/[^a-f0-9-]/gi, "");
-      await client.Runtime.evaluate({
-        expression: `(function() {
-          var pin = document.querySelector('[data-relay-annotation-id="${safeId}"]');
-          if (pin) pin.remove();
-          if (typeof window.__relayAnnotateRefresh === 'function') window.__relayAnnotateRefresh();
-          return true;
-        })()`,
-        returnByValue: true,
-        awaitPromise: false,
-      });
-    } catch {
-      // Best-effort — badge removal is visual-only
-    }
-
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          success: true,
-          id: annotation.id,
-          feedback: annotation.text,
-        }, null, 2),
-      }],
+      content: [{ type: "text" as const, text: JSON.stringify({ servers }, null, 2) }],
     };
-  },
-);
-
-// --- Tool: wait_for_send ---
-
-server.tool(
-  "wait_for_send",
-  "Long-poll until the user clicks 'Send to AI' in the browser overlay, then return all open annotations. Call this proactively after connecting to a page or injecting the overlay — do not wait for the user to ask. When it times out, call it again to keep listening.",
-  {
-    timeout: z
-      .number()
-      .min(1)
-      .max(600)
-      .optional()
-      .default(300)
-      .describe("Max seconds to wait (default 300, max 600)"),
-  },
-  async ({ timeout }) => {
-    const port = getAnnotationPort();
-    if (port === null) {
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            error: "Annotation server is not running. It starts automatically when Chrome connects — try any browser tool first to trigger a connection.",
-          }, null, 2),
-        }],
-        isError: true,
-      };
-    }
-
-    // Signal "done" from a previous processing cycle
-    if (previousWaitForSendTriggered) {
-      previousWaitForSendTriggered = false;
-      injectProcessingState("done");
-    }
-
-    const result = await annotationServer.waitForSend(timeout * 1000);
-
-    if (!result.triggered) {
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            timeout: true,
-            waited_seconds: timeout,
-            hint: "No annotations sent yet. Call wait_for_send again to keep listening.",
-          }, null, 2),
-        }],
-      };
-    }
-
-    const items = annotationServer.getAnnotations().filter((a) => a.status === "open");
-
-    if (items.length === 0) {
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({ sent: true, count: 0, message: "No open annotations." }, null, 2),
-        }],
-      };
-    }
-
-    const content = formatAnnotations(items);
-
-    // Auto-resolve: remove badges from browser and delete annotations
-    try {
-      const client = await cdpClient.ensureConnected();
-      const ids = items.map((a) => a.id);
-      const safeIds = ids.map((id) => id.replace(/[^a-f0-9-]/gi, ""));
-      await client.Runtime.evaluate({
-        expression: `(function() {
-          ${safeIds.map((id) => `var p = document.querySelector('[data-relay-annotation-id="${id}"]'); if (p) p.remove();`).join("\n")}
-          if (typeof window.__relayAnnotateRefresh === 'function') window.__relayAnnotateRefresh();
-          return true;
-        })()`,
-        returnByValue: true,
-        awaitPromise: false,
-      });
-    } catch {
-      // Best-effort — badge removal is visual-only
-    }
-    for (const a of items) {
-      annotationServer.deleteAnnotation(a.id);
-    }
-
-    // Signal "processing" after annotations are cleaned up to avoid ghost pins
-    previousWaitForSendTriggered = true;
-    injectProcessingState("processing");
-
-    content.push({
-      type: "text",
-      text: JSON.stringify({
-        hint: "After addressing these annotations, call wait_for_send again to keep listening for more.",
-      }, null, 2),
-    });
-
-    return { content };
   },
 );
 
@@ -1225,7 +776,6 @@ async function gracefulShutdown(signal: string): Promise<void> {
   await Promise.all([
     cdpClient.shutdown(),
     serverManager.stopAll(),
-    annotationServer.shutdown(),
   ]);
   process.exit(0);
 }
