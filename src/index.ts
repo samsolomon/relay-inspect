@@ -1082,7 +1082,10 @@ server.tool(
       };
     }
 
-    // Remove the badge from the browser and delete the annotation
+    // Delete from server first so the browser refresh sees updated state
+    annotationServer.deleteAnnotation(id);
+
+    // Remove the badge from the browser and refresh the overlay
     try {
       const client = await cdpClient.ensureConnected();
       const safeId = id.replace(/[^a-f0-9-]/gi, "");
@@ -1090,6 +1093,7 @@ server.tool(
         expression: `(function() {
           var pin = document.querySelector('[data-relay-annotation-id="${safeId}"]');
           if (pin) pin.remove();
+          if (typeof window.__relayAnnotateRefresh === 'function') window.__relayAnnotateRefresh();
           return true;
         })()`,
         returnByValue: true,
@@ -1098,8 +1102,6 @@ server.tool(
     } catch {
       // Best-effort — badge removal is visual-only
     }
-
-    annotationServer.deleteAnnotation(id);
 
     return {
       content: [{
