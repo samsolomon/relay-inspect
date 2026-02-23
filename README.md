@@ -4,6 +4,8 @@ Stop copying and pasting console logs, server errors and screenshots into your C
 
 Relay Inspect is a lightweight tool for designers and engineers who want to spend more time building and less time debugging.
 
+![Relay Inspect annotation overlay](assets/hero.png)
+
 ```
                                                     ┌─ Chrome (CDP over WebSocket)
 AI Coding Agent  ←→  Relay Inspect (MCP over stdio) ─┤
