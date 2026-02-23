@@ -34,7 +34,9 @@ relay-inspect/
 │   ├── chrome-launcher.ts    # Chrome path discovery, auto-launch, CDP readiness polling
 │   ├── server-manager.ts     # Dev server lifecycle management (start/stop/logs)
 │   ├── annotationOverlay.ts  # Browser-injected IIFE for annotation UI (highlight, popover, badges)
-│   └── annotationServer.ts   # HTTP server for annotation CRUD, screenshot callback
+│   ├── annotationServer.ts   # HTTP server for annotation CRUD, screenshot callback
+│   ├── *.test.ts              # Test files (annotation-server, cdp-target-selection, circular-buffer, server-manager)
+├── assets/                    # Static assets (hero image, etc.)
 ├── package.json
 ├── tsconfig.json
 ├── CLAUDE.md
@@ -61,6 +63,7 @@ relay-inspect/
 | `reload_page` | Reload the current page (optionally bypass cache) | `ignoreCache?: boolean` (default false) |
 | `wait_and_check` | Wait N seconds then return new console output (for post-reload checks) | `seconds?: number` (default 2) |
 | `connect_to_page` | Switch to a specific Chrome page target by ID or URL match | `id?: string`, `urlPattern?: string`, `waitForMs?: number` |
+| `navigate_to` | Navigate the current page to a new URL | `url: string` |
 
 ### Server Management
 
@@ -80,7 +83,7 @@ The annotation overlay is auto-injected on every Chrome connection (including pa
 | `inject_annotation_overlay` | Manually inject the overlay (idempotent, usually not needed) | _(none)_ |
 | `list_annotations` | List all annotations with screenshots, React source, and viewport | _(none)_ |
 | `resolve_annotation` | Remove an annotation from the UI and delete it | `id: string` |
-| `wait_for_send` | Long-poll until the user clicks "Send to AI" in the browser overlay, then return all open annotations | `timeout?: number` (default 30, max 300 seconds) |
+| `wait_for_send` | Long-poll until the user clicks "Send to AI" in the browser overlay, then return all open annotations | `timeout?: number` (default 300, max 600 seconds) |
 
 Each annotation captures:
 - **selector** — CSS selector for the annotated element (with confidence: stable/fragile)
