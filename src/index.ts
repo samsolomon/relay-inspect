@@ -809,7 +809,7 @@ server.tool(
       .optional()
       .describe("Working directory for the command (defaults to server's cwd)"),
     env: z
-      .record(z.string())
+      .record(z.string(), z.string())
       .optional()
       .describe("Additional environment variables"),
     urlPattern: z
