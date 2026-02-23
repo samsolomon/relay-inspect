@@ -5,8 +5,7 @@ import CDP from "chrome-remote-interface";
 import { cdpClient, config, isInternalTargetUrl } from "./cdp-client.js";
 import { isAutoLaunchEnabled, findChromePath } from "./chrome-launcher.js";
 import { serverManager } from "./server-manager.js";
-import { annotationServer, getAnnotationPort } from "./annotationServer.js";
-import { buildOverlayScript } from "./annotationOverlay.js";
+import { annotationServer, buildOverlayScript, getAnnotationPort } from "relay-annotations";
 
 // --- Crash Guards ---
 // Register before any async work. CDP operations can reject at any time

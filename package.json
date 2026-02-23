@@ -15,6 +15,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "chrome-remote-interface": "^0.34.0",
+    "relay-annotations": "file:../relay-annotations",
     "tree-kill": "^1.2.2",
     "zod": "^4.3.6"
   },
