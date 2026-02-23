@@ -1125,10 +1125,10 @@ server.tool(
     timeout: z
       .number()
       .min(1)
-      .max(300)
+      .max(600)
       .optional()
       .default(30)
-      .describe("Max seconds to wait (default 30, max 300)"),
+      .describe("Max seconds to wait (default 30, max 600)"),
   },
   async ({ timeout }) => {
     const port = getAnnotationPort();
