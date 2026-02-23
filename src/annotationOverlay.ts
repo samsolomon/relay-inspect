@@ -510,53 +510,22 @@ export function buildOverlayScript(port: number): string {
   enableSendBtn.appendChild(enableSendTooltip);
   rootEl.appendChild(enableSendBtn);
 
-  // Clear all button
+  // Clear all button (icon-only, next to toggle)
   var clearBtn = document.createElement('button');
-  clearBtn.className = 'relay-toolbar-btn';
+  clearBtn.className = 'relay-toolbar-btn relay-toolbar-btn--icon';
   clearBtn.style.display = 'none';
   clearBtn.setAttribute('data-relay-ignore', 'true');
-  var clearIconSpan = document.createElement('span');
-  clearIconSpan.innerHTML = TRASH_SVG;
-  clearIconSpan.style.display = 'flex';
-  clearBtn.appendChild(clearIconSpan);
-  var clearLabel = document.createElement('span');
-  clearLabel.textContent = 'Clear';
-  clearBtn.appendChild(clearLabel);
+  clearBtn.innerHTML = TRASH_SVG;
   var clearTooltip = document.createElement('span');
   clearTooltip.className = 'relay-toolbar-tooltip';
   clearTooltip.innerHTML = '<kbd>Shift</kbd><kbd>X</kbd>';
   clearBtn.appendChild(clearTooltip);
   rootEl.appendChild(clearBtn);
 
-  var clearConfirmTimer = null;
-  var clearConfirming = false;
-
-  function resetClearBtn() {
-    clearConfirming = false;
-    if (clearConfirmTimer) { clearTimeout(clearConfirmTimer); clearConfirmTimer = null; }
-    clearLabel.textContent = 'Clear';
-    clearBtn.style.background = '';
-    clearBtn.style.color = '';
-    clearBtn.style.borderColor = '';
-  }
-
   function handleClearClick() {
-    if (clearConfirming) {
-      // Second click — execute
-      resetClearBtn();
-      clearAllAnnotations().then(function() {
-        refreshAnnotations();
-      }).catch(function(err) { console.error('Clear all failed:', err); });
-    } else {
-      // First click — confirm
-      var openCount = annotations.filter(function(a) { return a.status === 'open'; }).length;
-      clearConfirming = true;
-      clearLabel.textContent = 'Clear ' + openCount + '?';
-      clearBtn.style.background = '#dc2626';
-      clearBtn.style.color = '#fff';
-      clearBtn.style.borderColor = 'rgba(220, 38, 38, 0.5)';
-      clearConfirmTimer = setTimeout(resetClearBtn, 3000);
-    }
+    clearAllAnnotations().then(function() {
+      refreshAnnotations();
+    }).catch(function(err) { console.error('Clear all failed:', err); });
   }
 
   clearBtn.addEventListener('click', function(e) {
@@ -683,11 +652,14 @@ export function buildOverlayScript(port: number): string {
 
   // --- Position toolbar buttons relative to toggle button ---
   function positionToolbarBtn(btn) {
-    var toggleLeft = parseFloat(toggleBtn.style.left) || 0;
     var toggleTop = parseFloat(toggleBtn.style.top) || 0;
     var btnWidth = btn.offsetWidth || 100;
-    var left = toggleLeft - btnWidth - 8;
-    if (left < BTN_MARGIN) left = toggleLeft + BTN_SIZE + 8;
+    // Anchor to the left of clearBtn if visible, otherwise left of toggle
+    var anchorLeft = (clearBtn.style.display !== 'none')
+      ? parseFloat(clearBtn.style.left) || 0
+      : parseFloat(toggleBtn.style.left) || 0;
+    var left = anchorLeft - btnWidth - 8;
+    if (left < BTN_MARGIN) left = (parseFloat(toggleBtn.style.left) || 0) + BTN_SIZE + 8;
     btn.style.left = left + 'px';
     btn.style.top = toggleTop + 'px';
   }
@@ -696,18 +668,7 @@ export function buildOverlayScript(port: number): string {
   function positionClearBtn() {
     var toggleLeft = parseFloat(toggleBtn.style.left) || 0;
     var toggleTop = parseFloat(toggleBtn.style.top) || 0;
-    // Position to the left of the visible send-related button, or left of toggle
-    var refBtn = null;
-    if (sendBtn.style.display !== 'none') refBtn = sendBtn;
-    else if (enableSendBtn.style.display !== 'none') refBtn = enableSendBtn;
-    var clearWidth = clearBtn.offsetWidth || 80;
-    var left;
-    if (refBtn) {
-      var refLeft = parseFloat(refBtn.style.left) || 0;
-      left = refLeft - clearWidth - 8;
-    } else {
-      left = toggleLeft - clearWidth - 8;
-    }
+    var left = toggleLeft - BTN_SIZE - 8;
     if (left < BTN_MARGIN) left = toggleLeft + BTN_SIZE + 8;
     clearBtn.style.left = left + 'px';
     clearBtn.style.top = toggleTop + 'px';
@@ -1249,8 +1210,16 @@ export function buildOverlayScript(port: number): string {
 
     repositionBadges();
 
-    // Update Send / Enable-sending button visibility
+    // Update button visibility
     var openCount = annotations.filter(function(a) { return a.status === 'open'; }).length;
+
+    // Clear button: show next to toggle when annotations exist and idle
+    if (openCount > 0 && processingState === 'idle') {
+      clearBtn.style.display = 'flex';
+      positionClearBtn();
+    } else {
+      clearBtn.style.display = 'none';
+    }
 
     // Processing/done states override normal button appearance
     if (processingState === 'processing') {
@@ -1302,15 +1271,6 @@ export function buildOverlayScript(port: number): string {
       sendCountBadge.style.display = '';
       sendBtn.style.display = 'none';
       enableSendBtn.style.display = 'none';
-    }
-
-    // Clear button: show when annotations exist and not in processing/done state
-    if (openCount > 0 && processingState === 'idle') {
-      clearBtn.style.display = 'flex';
-      positionClearBtn();
-    } else {
-      clearBtn.style.display = 'none';
-      resetClearBtn();
     }
   }
 
