@@ -7,18 +7,25 @@ export function buildOverlayScript(port: number): string {
   return `(function() {
   'use strict';
 
+  // --- Config ---
+  var API_BASE = 'http://127.0.0.1:${port}';
+  var API_STATE_KEY = '__relayAnnotationsApiBase';
+
+  function getApiBase() {
+    return window[API_STATE_KEY] || API_BASE;
+  }
+
   // --- Idempotency guard ---
   if (window.__relayAnnotationsLoaded) {
-    // Re-injection: refresh badges and return
+    // Re-injection: update runtime API endpoint in case annotation server port changed.
+    window[API_STATE_KEY] = API_BASE;
     if (typeof window.__relayAnnotateRefresh === 'function') {
       window.__relayAnnotateRefresh();
     }
     return 'overlay already loaded — refreshed';
   }
   window.__relayAnnotationsLoaded = true;
-
-  // --- Config ---
-  var API = 'http://127.0.0.1:${port}';
+  window[API_STATE_KEY] = API_BASE;
 
   // --- Background luminance detection ---
   function detectDarkBackground() {
@@ -405,24 +412,24 @@ export function buildOverlayScript(port: number): string {
 
   // --- API helpers ---
   function fetchAnnotations() {
-    return fetch(API + '/annotations').then(function(r) { return r.json(); });
+    return fetch(getApiBase() + '/annotations').then(function(r) { return r.json(); });
   }
   function createAnnotation(data) {
-    return fetch(API + '/annotations', {
+    return fetch(getApiBase() + '/annotations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     }).then(function(r) { return r.json(); });
   }
   function updateAnnotation(id, data) {
-    return fetch(API + '/annotations/' + encodeURIComponent(id), {
+    return fetch(getApiBase() + '/annotations/' + encodeURIComponent(id), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     }).then(function(r) { return r.json(); });
   }
   function deleteAnnotation(id) {
-    return fetch(API + '/annotations/' + encodeURIComponent(id), {
+    return fetch(getApiBase() + '/annotations/' + encodeURIComponent(id), {
       method: 'DELETE'
     }).then(function(r) { return r.json(); });
   }
@@ -1275,7 +1282,7 @@ export function buildOverlayScript(port: number): string {
     sendIconSpan.innerHTML = CHECK_SVG;
     sendLabel.textContent = 'Sent!';
     sendBtn.style.pointerEvents = 'none';
-    fetch(API + '/annotations/send', { method: 'POST' }).catch(function(err) {
+    fetch(getApiBase() + '/annotations/send', { method: 'POST' }).catch(function(err) {
       console.error('Send to AI failed:', err);
     });
     // Revert after 3s if there are still open annotations
