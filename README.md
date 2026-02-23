@@ -37,6 +37,7 @@ Your agent gets access to the following tools automatically via MCP:
 | `reload_page` | Reload the current page (optionally bypass cache) | `ignoreCache` (bool, default: false) |
 | `wait_and_check` | Wait N seconds then return new console output captured during the wait | `seconds` (number, default: 2) |
 | `connect_to_page` | Switch to a specific Chrome page target by ID or URL match | `id` (string) OR `urlPattern` (string), `waitForMs` (number) |
+| `navigate_to` | Navigate the current page to a new URL | `url` (string) |
 
 ### Server Management
 
@@ -160,6 +161,7 @@ If Chrome is already running with `--remote-debugging-port`, Relay Inspect will 
 npm run dev    # Run with tsx (auto-recompile)
 npm run build  # Build with tsup
 npm start      # Run the built bundle
+npm test       # Run tests with vitest
 ```
 
-For architecture details, see [CLAUDE.md](./CLAUDE.md).
+For detailed architecture, conventions, and CDP implementation notes, see [CLAUDE.md](./CLAUDE.md).
