@@ -90,7 +90,7 @@ export function buildOverlayScript(port: number): string {
     '.relay-annotate-root { --relay-radius-xs: 4px; --relay-radius-sm: 20px; --relay-radius-lg: 12px; }',
     // --- Theme variables ---
     '.relay-annotate-root[data-relay-theme="light"] {',
-    '  --relay-bg: rgba(10, 10, 10, 0.75);',
+    '  --relay-bg: rgba(10, 10, 10, 0.55);',
     '  --relay-bg-solid: #1e1e1e;',
     '  --relay-text: rgba(255, 255, 255, 0.95);',
     '  --relay-text-secondary: rgba(255, 255, 255, 0.4);',
@@ -107,7 +107,7 @@ export function buildOverlayScript(port: number): string {
     '  --relay-pin-shadow: rgba(0, 0, 0, 0.3);',
     '}',
     '.relay-annotate-root[data-relay-theme="dark"] {',
-    '  --relay-bg: rgba(255, 255, 255, 0.88);',
+    '  --relay-bg: rgba(255, 255, 255, 0.65);',
     '  --relay-bg-solid: #f0f0f0;',
     '  --relay-text: rgba(0, 0, 0, 0.88);',
     '  --relay-text-secondary: rgba(0, 0, 0, 0.45);',
@@ -433,6 +433,11 @@ export function buildOverlayScript(port: number): string {
       method: 'DELETE'
     }).then(function(r) { return r.json(); });
   }
+  function clearAllAnnotations() {
+    return fetch(getApiBase() + '/annotations', {
+      method: 'DELETE'
+    }).then(function(r) { return r.json(); });
+  }
 
   // --- Create UI elements ---
 
@@ -504,6 +509,60 @@ export function buildOverlayScript(port: number): string {
   enableSendTooltip.innerHTML = '<kbd>Shift</kbd><kbd>S</kbd>';
   enableSendBtn.appendChild(enableSendTooltip);
   rootEl.appendChild(enableSendBtn);
+
+  // Clear all button
+  var clearBtn = document.createElement('button');
+  clearBtn.className = 'relay-toolbar-btn';
+  clearBtn.style.display = 'none';
+  clearBtn.setAttribute('data-relay-ignore', 'true');
+  var clearIconSpan = document.createElement('span');
+  clearIconSpan.innerHTML = TRASH_SVG;
+  clearIconSpan.style.display = 'flex';
+  clearBtn.appendChild(clearIconSpan);
+  var clearLabel = document.createElement('span');
+  clearLabel.textContent = 'Clear';
+  clearBtn.appendChild(clearLabel);
+  var clearTooltip = document.createElement('span');
+  clearTooltip.className = 'relay-toolbar-tooltip';
+  clearTooltip.innerHTML = '<kbd>Shift</kbd><kbd>X</kbd>';
+  clearBtn.appendChild(clearTooltip);
+  rootEl.appendChild(clearBtn);
+
+  var clearConfirmTimer = null;
+  var clearConfirming = false;
+
+  function resetClearBtn() {
+    clearConfirming = false;
+    if (clearConfirmTimer) { clearTimeout(clearConfirmTimer); clearConfirmTimer = null; }
+    clearLabel.textContent = 'Clear';
+    clearBtn.style.background = '';
+    clearBtn.style.color = '';
+    clearBtn.style.borderColor = '';
+  }
+
+  function handleClearClick() {
+    if (clearConfirming) {
+      // Second click — execute
+      resetClearBtn();
+      clearAllAnnotations().then(function() {
+        refreshAnnotations();
+      }).catch(function(err) { console.error('Clear all failed:', err); });
+    } else {
+      // First click — confirm
+      var openCount = annotations.filter(function(a) { return a.status === 'open'; }).length;
+      clearConfirming = true;
+      clearLabel.textContent = 'Clear ' + openCount + '?';
+      clearBtn.style.background = '#dc2626';
+      clearBtn.style.color = '#fff';
+      clearBtn.style.borderColor = 'rgba(220, 38, 38, 0.5)';
+      clearConfirmTimer = setTimeout(resetClearBtn, 3000);
+    }
+  }
+
+  clearBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    handleClearClick();
+  });
 
   // --- Instructional modal ---
   var modalBackdrop = document.createElement('div');
@@ -582,6 +641,7 @@ export function buildOverlayScript(port: number): string {
   var shortcuts = [
     ['Shift', 'A', 'Toggle annotation mode'],
     ['Shift', 'S', 'Send to AI'],
+    ['Shift', 'X', 'Clear all annotations'],
     ['Shift', 'D', 'Toggle light / dark'],
     ['Esc', null, 'Dismiss / exit'],
     ['?', null, 'Show shortcuts'],
@@ -633,6 +693,25 @@ export function buildOverlayScript(port: number): string {
   }
   function positionSendBtn() { positionToolbarBtn(sendBtn); }
   function positionEnableSendBtn() { positionToolbarBtn(enableSendBtn); }
+  function positionClearBtn() {
+    var toggleLeft = parseFloat(toggleBtn.style.left) || 0;
+    var toggleTop = parseFloat(toggleBtn.style.top) || 0;
+    // Position to the left of the visible send-related button, or left of toggle
+    var refBtn = null;
+    if (sendBtn.style.display !== 'none') refBtn = sendBtn;
+    else if (enableSendBtn.style.display !== 'none') refBtn = enableSendBtn;
+    var clearWidth = clearBtn.offsetWidth || 80;
+    var left;
+    if (refBtn) {
+      var refLeft = parseFloat(refBtn.style.left) || 0;
+      left = refLeft - clearWidth - 8;
+    } else {
+      left = toggleLeft - clearWidth - 8;
+    }
+    if (left < BTN_MARGIN) left = toggleLeft + BTN_SIZE + 8;
+    clearBtn.style.left = left + 'px';
+    clearBtn.style.top = toggleTop + 'px';
+  }
 
   // --- Toggle annotation mode ---
   function setAnnotationMode(active) {
@@ -687,6 +766,7 @@ export function buildOverlayScript(port: number): string {
       toggleBtn.style.top = newTop + 'px';
       positionSendBtn();
       positionEnableSendBtn();
+      positionClearBtn();
     }
   });
 
@@ -710,6 +790,7 @@ export function buildOverlayScript(port: number): string {
     toggleBtn.style.top = Math.max(BTN_MARGIN, Math.min(top, window.innerHeight - BTN_SIZE - BTN_MARGIN)) + 'px';
     positionSendBtn();
     positionEnableSendBtn();
+    positionClearBtn();
   });
 
   // --- Highlight on hover (used when not dragging) ---
@@ -1222,6 +1303,15 @@ export function buildOverlayScript(port: number): string {
       sendBtn.style.display = 'none';
       enableSendBtn.style.display = 'none';
     }
+
+    // Clear button: show when annotations exist and not in processing/done state
+    if (openCount > 0 && processingState === 'idle') {
+      clearBtn.style.display = 'flex';
+      positionClearBtn();
+    } else {
+      clearBtn.style.display = 'none';
+      resetClearBtn();
+    }
   }
 
   // --- Reposition pins without recreating DOM (used on scroll) ---
@@ -1413,6 +1503,14 @@ export function buildOverlayScript(port: number): string {
       } else if (sendBtn.style.display !== 'none') {
         e.preventDefault();
         triggerSend();
+      }
+    }
+    // Shift+X to clear all
+    if (e.shiftKey && e.key === 'X' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (isEditingText()) return;
+      if (clearBtn.style.display !== 'none') {
+        e.preventDefault();
+        handleClearClick();
       }
     }
     // Shift+D to toggle theme

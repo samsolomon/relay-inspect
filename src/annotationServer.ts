@@ -222,6 +222,12 @@ export class AnnotationServer {
     return this.annotations.delete(id);
   }
 
+  clearAnnotations(): number {
+    const count = this.annotations.size;
+    this.annotations.clear();
+    return count;
+  }
+
   async shutdown(): Promise<void> {
     if (!this.server) return;
     return new Promise((resolve) => {
@@ -368,6 +374,13 @@ export class AnnotationServer {
 
         this.annotations.set(annotation.id, annotation);
         jsonResponse(res, 201, { id: annotation.id }, req);
+        return;
+      }
+
+      // DELETE /annotations — bulk delete all
+      if (method === "DELETE" && path === "/annotations") {
+        const deleted = this.clearAnnotations();
+        jsonResponse(res, 200, { success: true, deleted }, req);
         return;
       }
 

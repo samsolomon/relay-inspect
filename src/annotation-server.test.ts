@@ -141,6 +141,42 @@ describe("AnnotationServer HTTP", () => {
     expect(deleteAgain.status).toBe(404);
   });
 
+  it("bulk-deletes all annotations via DELETE /annotations", async () => {
+    // Create a few annotations
+    for (let i = 0; i < 3; i++) {
+      await fetch(`${baseUrl}/annotations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: `bulk-${i}`, viewport: { width: 800, height: 600 } }),
+      });
+    }
+
+    // Verify they exist
+    const before = await fetch(`${baseUrl}/annotations`);
+    const beforeBody = await before.json();
+    expect(beforeBody.length).toBeGreaterThanOrEqual(3);
+
+    // Bulk delete
+    const deleteRes = await fetch(`${baseUrl}/annotations`, { method: "DELETE" });
+    expect(deleteRes.status).toBe(200);
+    const deleteBody = await deleteRes.json();
+    expect(deleteBody.success).toBe(true);
+    expect(deleteBody.deleted).toBeGreaterThanOrEqual(3);
+
+    // Verify all are gone
+    const after = await fetch(`${baseUrl}/annotations`);
+    const afterBody = await after.json();
+    expect(afterBody.length).toBe(0);
+  });
+
+  it("bulk-delete on empty collection returns deleted: 0", async () => {
+    const deleteRes = await fetch(`${baseUrl}/annotations`, { method: "DELETE" });
+    expect(deleteRes.status).toBe(200);
+    const body = await deleteRes.json();
+    expect(body.success).toBe(true);
+    expect(body.deleted).toBe(0);
+  });
+
   it("returns 404 for unknown annotation ID", async () => {
     const res = await fetch(`${baseUrl}/annotations/nonexistent-id`, { method: "DELETE" });
     expect(res.status).toBe(404);
