@@ -81,20 +81,34 @@ export function buildOverlayScript(port: number): string {
   var processingState = 'idle'; // 'idle' | 'processing' | 'done'
   var processingTimer = null;
   var PROCESSING_TIMEOUT_MS = 120000; // 2min safety reset
+  var SENT_DURATION_MS = 3000;      // send button "Sent!" display time
+  var COPY_FEEDBACK_MS = 1500;      // copy button checkmark duration
+  var DEBOUNCE_MS = 150;            // mutation observer debounce
+  var DRAG_HIGHLIGHT_MS = 60;       // drag highlight throttle interval
+  var PIN_OFFSET = 10;              // pin offset from element edge (half of pin size)
+  var PIN_COLLISION_GAP = 24;       // vertical gap for stacked pins
+  var POPOVER_WIDTH = 280;          // popover width (matches CSS)
+  var POPOVER_MARGIN = 8;           // gap between popover and anchor
+  var POPOVER_EDGE_PAD = 4;         // min distance from viewport edge
 
   // --- Styles ---
   var styleEl = document.createElement('style');
   styleEl.setAttribute('data-relay-ignore', 'true');
   styleEl.textContent = [
     // --- Design tokens ---
-    '.relay-annotate-root { --relay-radius-xs: 4px; --relay-radius-sm: 20px; --relay-radius-lg: 12px; }',
+    '.relay-annotate-root {',
+    '  --relay-radius-xs: 4px; --relay-radius-sm: 20px; --relay-radius-lg: 12px;',
+    '  --relay-primary: #7C3AED; --relay-primary-hover: #6D28D9;',
+    '  --relay-primary-muted: rgba(124, 58, 237, 0.08); --relay-primary-strong: rgba(124, 58, 237, 0.85);',
+    '  --relay-success: #059669; --relay-success-border: rgba(5, 150, 105, 0.5);',
+    '  --relay-destructive: #f87171;',
+    '}',
     // --- Theme variables ---
     '.relay-annotate-root[data-relay-theme="light"] {',
     '  --relay-bg: rgba(10, 10, 10, 0.78);',
     '  --relay-bg-solid: #1e1e1e;',
     '  --relay-text: rgba(255, 255, 255, 0.95);',
     '  --relay-text-secondary: rgba(255, 255, 255, 0.4);',
-    '  --relay-text-hint: rgba(255, 255, 255, 0.3);',
     '  --relay-border: rgba(255, 255, 255, 0.12);',
     '  --relay-border-subtle: rgba(255, 255, 255, 0.1);',
     '  --relay-input-bg: rgba(255, 255, 255, 0.06);',
@@ -111,7 +125,6 @@ export function buildOverlayScript(port: number): string {
     '  --relay-bg-solid: #f0f0f0;',
     '  --relay-text: rgba(0, 0, 0, 0.88);',
     '  --relay-text-secondary: rgba(0, 0, 0, 0.45);',
-    '  --relay-text-hint: rgba(0, 0, 0, 0.35);',
     '  --relay-border: rgba(0, 0, 0, 0.12);',
     '  --relay-border-subtle: rgba(0, 0, 0, 0.1);',
     '  --relay-input-bg: rgba(0, 0, 0, 0.04);',
@@ -139,7 +152,7 @@ export function buildOverlayScript(port: number): string {
     '.relay-toolbar-btn svg { width: 18px; height: 18px; flex-shrink: 0; }',
     '.relay-toolbar-btn--icon { width: 40px; padding: 0; cursor: grab; }',
     '.relay-toolbar-btn.sent {',
-    '  background: #059669; color: #fff; border-color: rgba(5, 150, 105, 0.5);',
+    '  background: var(--relay-success); color: #fff; border-color: var(--relay-success-border);',
     '}',
     '.relay-toolbar-tooltip {',
     '  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);',
@@ -159,14 +172,14 @@ export function buildOverlayScript(port: number): string {
     '}',
     '.relay-annotate-mode-bar {',
     '  position: fixed; top: 0; left: 0; right: 0; bottom: 0;',
-    '  border: 3px solid #7C3AED; border-radius: 0 0 20px 20px;',
+    '  border: 3px solid var(--relay-primary); border-radius: 0 0 20px 20px;',
     '  z-index: 999998; pointer-events: none;',
     '  transition: opacity 0.15s; opacity: 0;',
     '}',
     '.relay-annotate-mode-bar.active { opacity: 1; }',
     '.relay-annotate-highlight {',
     '  position: fixed; pointer-events: none; z-index: 999996;',
-    '  outline: 2px dashed #7C3AED; outline-offset: -1px; border-radius: var(--relay-radius-xs); background: rgba(124, 58, 237, 0.08);',
+    '  outline: 2px dashed var(--relay-primary); outline-offset: -1px; border-radius: var(--relay-radius-xs); background: var(--relay-primary-muted);',
     '  transition: all 0.05s; display: none;',
     '}',
     '.relay-annotate-popover {',
@@ -198,19 +211,19 @@ export function buildOverlayScript(port: number): string {
     '.relay-annotate-popover-actions button:hover { background: var(--relay-btn-hover); }',
     '.relay-annotate-popover-actions button:disabled { opacity: 0.4; cursor: default; }',
     '.relay-annotate-popover-actions button.primary {',
-    '  background: #7C3AED; color: #fff; border-color: transparent; font-weight: 600;',
+    '  background: var(--relay-primary); color: #fff; border-color: transparent; font-weight: 600;',
     '}',
-    '.relay-annotate-popover-actions button.primary:hover { background: #6D28D9; }',
+    '.relay-annotate-popover-actions button.primary:hover { background: var(--relay-primary-hover); }',
     '.relay-annotate-popover-actions button.ghost-icon {',
     '  width: 32px; padding: 0; margin-right: auto; border: none;',
     '  display: flex; align-items: center; justify-content: center;',
     '  background: transparent; color: var(--relay-text-secondary);',
     '}',
-    '.relay-annotate-popover-actions button.ghost-icon:hover { background: var(--relay-btn-hover); color: #f87171; }',
+    '.relay-annotate-popover-actions button.ghost-icon:hover { background: var(--relay-btn-hover); color: var(--relay-destructive); }',
     '.relay-annotate-popover-actions button.ghost-icon svg { width: 16px; height: 16px; }',
     '.relay-annotate-pin {',
     '  position: fixed; width: 20px; height: 20px; border-radius: 50%;',
-    '  background: rgba(124, 58, 237, 0.85); color: #fff; font-size: 10px; font-weight: 700;',
+    '  background: var(--relay-primary-strong); color: #fff; font-size: 10px; font-weight: 700;',
     '  display: flex; align-items: center; justify-content: center;',
     '  cursor: pointer; z-index: 999997;',
     '  border: 1px solid var(--relay-pin-border); box-shadow: 0 2px 8px var(--relay-pin-shadow);',
@@ -221,12 +234,12 @@ export function buildOverlayScript(port: number): string {
     '  font-size: 11px; color: var(--relay-text-secondary); margin-bottom: 6px;',
     '}',
     '.relay-annotate-selection-rect {',
-    '  position: fixed; border: 2px solid #7C3AED; background: rgba(124, 58, 237, 0.10);',
+    '  position: fixed; border: 2px solid var(--relay-primary); background: var(--relay-primary-muted);',
     '  border-radius: var(--relay-radius-xs); z-index: 999996; pointer-events: none; display: none;',
     '}',
     '.relay-annotate-drag-match {',
-    '  outline: 2px solid #7C3AED !important; outline-offset: -1px;',
-    '  background-color: rgba(124, 58, 237, 0.08) !important;',
+    '  outline: 2px solid var(--relay-primary) !important; outline-offset: -1px;',
+    '  background-color: var(--relay-primary-muted) !important;',
     '}',
     '.relay-send-count {',
     '  display: inline-flex; align-items: center; justify-content: center;',
@@ -274,10 +287,10 @@ export function buildOverlayScript(port: number): string {
     '.relay-annotate-modal-code button svg { width: 14px; height: 14px; }',
     '.relay-annotate-modal > button {',
     '  width: 100%; height: 36px; border-radius: var(--relay-radius-sm); border: none; cursor: pointer;',
-    '  background: #7C3AED; color: #fff; font-size: 13px; font-weight: 600;',
+    '  background: var(--relay-primary); color: #fff; font-size: 13px; font-weight: 600;',
     '  font-family: inherit; transition: background 0.15s;',
     '}',
-    '.relay-annotate-modal > button:hover { background: #6D28D9; }',
+    '.relay-annotate-modal > button:hover { background: var(--relay-primary-hover); }',
     // --- Shortcuts table ---
     '.relay-shortcuts-table {',
     '  width: 100%; border-collapse: collapse; margin: 0 0 16px;',
@@ -309,7 +322,7 @@ export function buildOverlayScript(port: number): string {
     '  animation: relay-spin 0.6s linear infinite; flex-shrink: 0;',
     '}',
     '.relay-toolbar-btn.done {',
-    '  background: #059669; color: #fff; border-color: rgba(5, 150, 105, 0.5);',
+    '  background: var(--relay-success); color: #fff; border-color: var(--relay-success-border);',
     '  pointer-events: none;',
     '}',
   ].join('\\n');
@@ -470,57 +483,49 @@ export function buildOverlayScript(port: number): string {
   toggleBtn.appendChild(toggleTooltip);
   rootEl.appendChild(toggleBtn);
 
+  // --- Toolbar button helper ---
+  function createToolbarBtn(opts) {
+    var btn = document.createElement('button');
+    btn.className = 'relay-toolbar-btn' + (opts.iconOnly ? ' relay-toolbar-btn--icon' : '');
+    btn.style.display = 'none';
+    btn.setAttribute('data-relay-ignore', 'true');
+    if (opts.iconOnly) {
+      btn.innerHTML = opts.icon;
+    } else {
+      var iconSpan = document.createElement('span');
+      iconSpan.innerHTML = opts.icon;
+      iconSpan.style.display = 'flex';
+      btn.appendChild(iconSpan);
+      if (opts.label) {
+        var labelSpan = document.createElement('span');
+        labelSpan.textContent = opts.label;
+        btn.appendChild(labelSpan);
+      }
+    }
+    if (opts.tooltip) {
+      var tip = document.createElement('span');
+      tip.className = 'relay-toolbar-tooltip';
+      tip.innerHTML = opts.tooltip;
+      btn.appendChild(tip);
+    }
+    rootEl.appendChild(btn);
+    return btn;
+  }
+
   // Send to AI button
-  var sendBtn = document.createElement('button');
-  sendBtn.className = 'relay-toolbar-btn';
-  sendBtn.style.display = 'none';
-  sendBtn.setAttribute('data-relay-ignore', 'true');
-  var sendIconSpan = document.createElement('span');
-  sendIconSpan.innerHTML = SEND_SVG;
-  sendIconSpan.style.display = 'flex';
-  sendBtn.appendChild(sendIconSpan);
-  var sendLabel = document.createElement('span');
-  sendLabel.textContent = 'Send';
-  sendBtn.appendChild(sendLabel);
+  var sendBtn = createToolbarBtn({ icon: SEND_SVG, label: 'Send', tooltip: '<kbd>Shift</kbd><kbd>S</kbd>' });
+  var sendIconSpan = sendBtn.querySelector('span');
+  var sendLabel = sendIconSpan.nextElementSibling;
   var sendCountBadge = document.createElement('span');
   sendCountBadge.className = 'relay-send-count';
   sendCountBadge.textContent = '0';
-  sendBtn.appendChild(sendCountBadge);
-  var sendTooltip = document.createElement('span');
-  sendTooltip.className = 'relay-toolbar-tooltip';
-  sendTooltip.innerHTML = '<kbd>Shift</kbd><kbd>S</kbd>';
-  sendBtn.appendChild(sendTooltip);
-  rootEl.appendChild(sendBtn);
+  sendBtn.insertBefore(sendCountBadge, sendBtn.querySelector('.relay-toolbar-tooltip'));
 
   // "Enable sending" button (onboarding gate — shown instead of sendBtn until dismissed)
-  var enableSendBtn = document.createElement('button');
-  enableSendBtn.className = 'relay-toolbar-btn';
-  enableSendBtn.style.display = 'none';
-  enableSendBtn.setAttribute('data-relay-ignore', 'true');
-  var enableSendIcon = document.createElement('span');
-  enableSendIcon.innerHTML = SEND_TO_BACK_SVG;
-  enableSendIcon.style.display = 'flex';
-  enableSendBtn.appendChild(enableSendIcon);
-  var enableSendLabel = document.createElement('span');
-  enableSendLabel.textContent = 'Enable sending';
-  enableSendBtn.appendChild(enableSendLabel);
-  var enableSendTooltip = document.createElement('span');
-  enableSendTooltip.className = 'relay-toolbar-tooltip';
-  enableSendTooltip.innerHTML = '<kbd>Shift</kbd><kbd>S</kbd>';
-  enableSendBtn.appendChild(enableSendTooltip);
-  rootEl.appendChild(enableSendBtn);
+  var enableSendBtn = createToolbarBtn({ icon: SEND_TO_BACK_SVG, label: 'Enable sending', tooltip: '<kbd>Shift</kbd><kbd>S</kbd>' });
 
   // Clear all button (icon-only, next to toggle)
-  var clearBtn = document.createElement('button');
-  clearBtn.className = 'relay-toolbar-btn relay-toolbar-btn--icon';
-  clearBtn.style.display = 'none';
-  clearBtn.setAttribute('data-relay-ignore', 'true');
-  clearBtn.innerHTML = TRASH_SVG;
-  var clearTooltip = document.createElement('span');
-  clearTooltip.className = 'relay-toolbar-tooltip';
-  clearTooltip.innerHTML = '<kbd>Shift</kbd><kbd>X</kbd>';
-  clearBtn.appendChild(clearTooltip);
-  rootEl.appendChild(clearBtn);
+  var clearBtn = createToolbarBtn({ icon: TRASH_SVG, iconOnly: true, tooltip: '<kbd>Shift</kbd><kbd>X</kbd>' });
 
   function handleClearClick() {
     clearAllAnnotations().then(function() {
@@ -533,13 +538,24 @@ export function buildOverlayScript(port: number): string {
     handleClearClick();
   });
 
+  // --- Modal helper ---
+  function createModal() {
+    var backdrop = document.createElement('div');
+    backdrop.className = 'relay-annotate-modal-backdrop';
+    backdrop.setAttribute('data-relay-ignore', 'true');
+    backdrop.style.display = 'none';
+    var card = document.createElement('div');
+    card.className = 'relay-annotate-modal';
+    card.addEventListener('click', function(e) { e.stopPropagation(); });
+    backdrop.appendChild(card);
+    rootEl.appendChild(backdrop);
+    return { backdrop: backdrop, card: card };
+  }
+
   // --- Instructional modal ---
-  var modalBackdrop = document.createElement('div');
-  modalBackdrop.className = 'relay-annotate-modal-backdrop';
-  modalBackdrop.setAttribute('data-relay-ignore', 'true');
-  modalBackdrop.style.display = 'none';
-  var modalCard = document.createElement('div');
-  modalCard.className = 'relay-annotate-modal';
+  var instructModal = createModal();
+  var modalBackdrop = instructModal.backdrop;
+  var modalCard = instructModal.card;
   var modalH3 = document.createElement('h3');
   modalH3.textContent = 'Send annotations to your AI';
   modalCard.appendChild(modalH3);
@@ -558,7 +574,7 @@ export function buildOverlayScript(port: number): string {
     e.stopPropagation();
     navigator.clipboard.writeText(EXAMPLE_PROMPT).then(function() {
       modalCopyBtn.innerHTML = CHECK_SVG;
-      setTimeout(function() { modalCopyBtn.innerHTML = COPY_SVG; }, 1500);
+      setTimeout(function() { modalCopyBtn.innerHTML = COPY_SVG; }, COPY_FEEDBACK_MS);
     });
   });
   modalCodeWrap.appendChild(modalCopyBtn);
@@ -569,9 +585,6 @@ export function buildOverlayScript(port: number): string {
   var modalOkBtn = document.createElement('button');
   modalOkBtn.textContent = 'OK';
   modalCard.appendChild(modalOkBtn);
-  modalCard.addEventListener('click', function(e) { e.stopPropagation(); });
-  modalBackdrop.appendChild(modalCard);
-  rootEl.appendChild(modalBackdrop);
 
   function showModal() {
     modalBackdrop.style.display = 'flex';
@@ -596,12 +609,9 @@ export function buildOverlayScript(port: number): string {
   }
 
   // --- Shortcuts modal ---
-  var shortcutsBackdrop = document.createElement('div');
-  shortcutsBackdrop.className = 'relay-annotate-modal-backdrop';
-  shortcutsBackdrop.setAttribute('data-relay-ignore', 'true');
-  shortcutsBackdrop.style.display = 'none';
-  var shortcutsCard = document.createElement('div');
-  shortcutsCard.className = 'relay-annotate-modal';
+  var shortcutsModal = createModal();
+  var shortcutsBackdrop = shortcutsModal.backdrop;
+  var shortcutsCard = shortcutsModal.card;
   var shortcutsH3 = document.createElement('h3');
   shortcutsH3.textContent = 'Keyboard Shortcuts';
   shortcutsCard.appendChild(shortcutsH3);
@@ -631,9 +641,6 @@ export function buildOverlayScript(port: number): string {
   var shortcutsCloseBtn = document.createElement('button');
   shortcutsCloseBtn.textContent = 'Close';
   shortcutsCard.appendChild(shortcutsCloseBtn);
-  shortcutsCard.addEventListener('click', function(e) { e.stopPropagation(); });
-  shortcutsBackdrop.appendChild(shortcutsCard);
-  rootEl.appendChild(shortcutsBackdrop);
 
   function showShortcuts() {
     shortcutsBackdrop.style.display = 'flex';
@@ -782,20 +789,21 @@ export function buildOverlayScript(port: number): string {
   function positionPopover(popover, anchorRect) {
     var vw = window.innerWidth;
     var vh = window.innerHeight;
-    var left = anchorRect.right + 8;
+    var popoverTotal = POPOVER_WIDTH + POPOVER_MARGIN;
+    var left = anchorRect.right + POPOVER_MARGIN;
     var top = anchorRect.top;
 
     // Adjust if off-screen right
-    if (left + 290 > vw) {
-      left = anchorRect.left - 290;
+    if (left + popoverTotal > vw) {
+      left = anchorRect.left - popoverTotal;
     }
-    if (left < 4) left = 4;
+    if (left < POPOVER_EDGE_PAD) left = POPOVER_EDGE_PAD;
 
     // Adjust if off-screen bottom
     if (top + 200 > vh) {
-      top = vh - 210;
+      top = vh - 200 - POPOVER_MARGIN;
     }
-    if (top < 4) top = 4;
+    if (top < POPOVER_EDGE_PAD) top = POPOVER_EDGE_PAD;
 
     popover.style.left = left + 'px';
     popover.style.top = top + 'px';
@@ -992,7 +1000,7 @@ export function buildOverlayScript(port: number): string {
       for (var i = 0; i < dragHighlighted.length; i++) {
         dragHighlighted[i].classList.add('relay-annotate-drag-match');
       }
-    }, 60);
+    }, DRAG_HIGHLIGHT_MS);
   }
 
   // --- Multi-element popover (drag selection) ---
@@ -1283,8 +1291,8 @@ export function buildOverlayScript(port: number): string {
       if (!ann) continue;
       var baseTop, baseLeft;
       if (ann.anchorPoint) {
-        baseTop = ann.anchorPoint.y - 10;
-        baseLeft = ann.anchorPoint.x - 10;
+        baseTop = ann.anchorPoint.y - PIN_OFFSET;
+        baseLeft = ann.anchorPoint.x - PIN_OFFSET;
       } else {
         var targetEl = null;
         try { targetEl = document.querySelector(ann.selector); } catch(e) { /* invalid selector */ }
@@ -1295,15 +1303,15 @@ export function buildOverlayScript(port: number): string {
           }
         }
         var rect = targetEl.getBoundingClientRect();
-        baseTop = rect.top - 10;
-        baseLeft = rect.right - 10;
+        baseTop = rect.top - PIN_OFFSET;
+        baseLeft = rect.right - PIN_OFFSET;
       }
       // Collision avoidance
       var offsetY = 0;
       for (var j = 0; j < positions.length; j++) {
         var p = positions[j];
         if (Math.abs(p.left - baseLeft) < 20 && Math.abs(p.top + p.offsetY - baseTop - offsetY) < 20) {
-          offsetY += 24;
+          offsetY += PIN_COLLISION_GAP;
         }
       }
       positions.push({ left: baseLeft, top: baseTop, offsetY: offsetY });
@@ -1327,7 +1335,7 @@ export function buildOverlayScript(port: number): string {
   // --- Send to AI click handler ---
   function triggerSend() {
     if (sendBtn.classList.contains('sent')) return;
-    sentUntil = Date.now() + 3000;
+    sentUntil = Date.now() + SENT_DURATION_MS;
     sendBtn.classList.add('sent');
     sendIconSpan.innerHTML = CHECK_SVG;
     sendLabel.textContent = 'Sent!';
@@ -1335,7 +1343,7 @@ export function buildOverlayScript(port: number): string {
     fetch(getApiBase() + '/annotations/send', { method: 'POST' }).catch(function(err) {
       console.error('Send to AI failed:', err);
     });
-    // Revert after 3s if there are still open annotations
+    // Revert after sent duration if there are still open annotations
     setTimeout(function() {
       var openCount = annotations.filter(function(a) { return a.status === 'open'; }).length;
       if (openCount > 0) {
@@ -1344,7 +1352,7 @@ export function buildOverlayScript(port: number): string {
         sendLabel.textContent = 'Send';
         sendBtn.style.pointerEvents = '';
       }
-    }, 3000);
+    }, SENT_DURATION_MS);
   }
   sendBtn.addEventListener('click', function(e) {
     e.stopPropagation();
@@ -1377,11 +1385,11 @@ export function buildOverlayScript(port: number): string {
         renderBadges();
       }, PROCESSING_TIMEOUT_MS);
     } else if (state === 'done') {
-      // Show "Done!" for 3s, then reset
+      // Show "Done!" then reset
       processingTimer = setTimeout(function() {
         processingState = 'idle';
         renderBadges();
-      }, 3000);
+      }, SENT_DURATION_MS);
     }
 
     renderBadges();
@@ -1417,7 +1425,7 @@ export function buildOverlayScript(port: number): string {
     renderDebounceTimer = setTimeout(function() {
       renderDebounceTimer = null;
       renderBadges();
-    }, 150);
+    }, DEBOUNCE_MS);
   }
 
   var observer = new MutationObserver(function(mutations) {
