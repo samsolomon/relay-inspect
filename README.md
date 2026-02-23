@@ -56,7 +56,16 @@ When ready, click the **Send to AI** button (or press **Shift+S**) to notify the
 | `inject_annotation_overlay` | Manually inject the overlay (idempotent, usually not needed) | — |
 | `list_annotations` | List all annotations with screenshots and context | — |
 | `resolve_annotation` | Remove an annotation from the UI and delete it | `id` (string) |
-| `wait_for_send` | Long-poll until the user clicks "Send to AI", then return all open annotations | `timeout` (number, default: 30, max: 300 seconds) |
+| `wait_for_send` | Long-poll until the user clicks "Send to AI", then return all open annotations | `timeout` (number, default: 300, max: 600 seconds) |
+
+#### Workflow
+
+1. Tell your agent to wait for and address your annotations
+2. Open the browser — the annotation overlay appears automatically
+3. Toggle annotation mode (pencil button or **Shift+A**), click an element, leave a comment
+4. Click **Send to AI** (or **Shift+S**) when ready
+5. The agent receives your annotations, makes changes, and resolves them
+6. Repeat as needed
 
 Each annotation includes:
 - A **screenshot** of the annotated element
