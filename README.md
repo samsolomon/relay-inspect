@@ -12,7 +12,7 @@ AI Coding Agent  ←→  Relay Inspect (MCP over stdio) ─┤
                                                     └─ Dev Servers (child processes)
 ```
 
-Relay Inspect is a bridge between the Chrome DevTools Protocol, your dev server and your agent. It exposes browser state as MCP tools—console output, network requests, DOM queries and screenshots. Your agent edits code, the dev server hot reloads, and the agent verifies the result itself.
+Relay Inspect is a bridge between the Chrome DevTools Protocol, your dev server and your agent. It exposes browser state as MCP tools—console output, network requests, DOM queries and screenshots. You can even add annotations in the UI to make sure the agent knows exactly what component you are referencing. Your agent edits code, the dev server hot reloads, and the agent verifies the result itself.
 
 
 ## Tools
@@ -52,7 +52,7 @@ Your agent gets access to the following tools automatically via MCP:
 
 An annotation overlay is auto-injected into the browser on every Chrome connection. Users can pin visual feedback to any DOM element — click the pencil button or press **Shift+A** to toggle annotation mode, then click an element and leave a comment.
 
-When ready, click the **Send to AI** button (or press **Shift+S**) to notify the agent. The agent can long-poll with `wait_for_send` to receive annotations as soon as the user sends them — no window switching required. After addressing feedback, the agent removes annotations with `resolve_annotation`.
+When ready, click the **Send** button (or press **Shift+S**) to notify the agent. The agent can long-poll with `wait_for_send` to receive annotations as soon as the user sends them—no window switching required.
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
@@ -64,9 +64,9 @@ When ready, click the **Send to AI** button (or press **Shift+S**) to notify the
 #### Workflow
 
 1. Tell your agent to wait for and address your annotations
-2. Open the browser — the annotation overlay appears automatically
+2. Open the browser—the annotation overlay appears automatically
 3. Toggle annotation mode (pencil button or **Shift+A**), click an element, leave a comment
-4. Click **Send to AI** (or **Shift+S**) when ready
+4. Click **Send** (or **Shift+S**) when ready
 5. The agent receives your annotations, makes changes, and resolves them
 6. Repeat as needed
 
