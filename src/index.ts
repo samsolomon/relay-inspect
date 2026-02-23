@@ -251,7 +251,7 @@ server.tool(
 
 server.tool(
   "connect_to_page",
-  "Connect to a specific Chrome page target by ID or URL pattern. The annotation overlay is auto-injected on connect. After connecting, call wait_for_send to listen for user annotations.",
+  "Connect to a specific Chrome page target by ID or URL pattern. The annotation overlay is auto-injected on connect. After connecting, call wait_for_send to wait for and address user annotations.",
   {
     id: z
       .string()
@@ -310,7 +310,7 @@ server.tool(
             {
               success: true,
               connected_target: selected,
-              hint: "The annotation overlay has been auto-injected. Call wait_for_send now to listen for user annotations — do not wait for the user to ask.",
+              hint: "The annotation overlay has been auto-injected. Call wait_for_send now to wait for and address user annotations — do not wait for the user to ask.",
             },
             null,
             2,
@@ -837,7 +837,7 @@ server.tool(
             text: JSON.stringify({
               ...result,
               connected_target: connected,
-              hint: "The annotation overlay has been auto-injected. Call wait_for_send now to listen for user annotations — do not wait for the user to ask.",
+              hint: "The annotation overlay has been auto-injected. Call wait_for_send now to wait for and address user annotations — do not wait for the user to ask.",
             }, null, 2),
           }],
         });
@@ -961,7 +961,7 @@ server.tool(
             success: true,
             port,
             message: result.result.value,
-            hint: "The annotation overlay is now active. Users can click the pencil button (bottom-right) or press Shift+A to start annotating elements. IMPORTANT: Call wait_for_send now to listen for the user's annotations — do not wait for them to ask.",
+            hint: "The annotation overlay is now active. Users can click the pencil button (bottom-right) or press Shift+A to start annotating elements. IMPORTANT: Call wait_for_send now to wait for and address user annotations — do not wait for them to ask.",
           }, null, 2),
         }],
       };

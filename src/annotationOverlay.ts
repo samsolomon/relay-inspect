@@ -509,9 +509,9 @@ export function buildOverlayScript(port: number): string {
   modalH3.textContent = 'Send annotations to your AI';
   modalCard.appendChild(modalH3);
   var modalP1 = document.createElement('p');
-  modalP1.textContent = 'In your terminal, ask the agent to listen for annotations. For example:';
+  modalP1.textContent = 'In your terminal, ask the agent to wait for and address your annotations. For example:';
   modalCard.appendChild(modalP1);
-  var EXAMPLE_PROMPT = 'Listen for my annotations';
+  var EXAMPLE_PROMPT = 'Wait for and address my annotations';
   var modalCodeWrap = document.createElement('div');
   modalCodeWrap.className = 'relay-annotate-modal-code';
   var modalCode = document.createElement('code');
