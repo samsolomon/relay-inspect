@@ -27,37 +27,11 @@ export function buildOverlayScript(port: number): string {
   window.__relayAnnotationsLoaded = true;
   window[API_STATE_KEY] = API_BASE;
 
-  // --- Background luminance detection ---
-  function detectDarkBackground() {
-    // Walk up from the element at the center of the viewport,
-    // checking computed backgroundColor until we find a non-transparent one.
-    var el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
-    var maxDepth = 20;
-    while (el && maxDepth-- > 0) {
-      var bg = getComputedStyle(el).backgroundColor;
-      if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') {
-        var match = bg.match(/\\d+/g);
-        if (match && match.length >= 3) {
-          var r = parseInt(match[0], 10);
-          var g = parseInt(match[1], 10);
-          var b = parseInt(match[2], 10);
-          // Simple perceived brightness (0-255)
-          var brightness = (r * 299 + g * 587 + b * 114) / 1000;
-          return brightness < 128;
-        }
-      }
-      el = el.parentElement;
-    }
-    return false; // default: assume light site
-  }
-
-  var isDarkSite = detectDarkBackground();
-
   // --- Root wrapper ---
   var rootEl = document.createElement('div');
   rootEl.className = 'relay-annotate-root';
   rootEl.setAttribute('data-relay-ignore', 'true');
-  rootEl.setAttribute('data-relay-theme', isDarkSite ? 'dark' : 'light');
+  rootEl.setAttribute('data-relay-theme', 'light');
   rootEl.style.display = 'contents';
   document.body.appendChild(rootEl);
 
@@ -193,7 +167,7 @@ export function buildOverlayScript(port: number): string {
     '.relay-annotate-popover textarea {',
     '  width: 100%; min-height: 60px; border: none; border-radius: 0;',
     '  padding: 0; font-size: 13px; font-family: inherit; resize: none;',
-    '  box-sizing: border-box; outline: none;',
+    '  box-sizing: border-box; outline: none; overflow: hidden;',
     '  background: transparent; color: var(--relay-text);',
     '}',
     '.relay-annotate-popover textarea::placeholder { color: var(--relay-placeholder); }',
@@ -538,7 +512,8 @@ export function buildOverlayScript(port: number): string {
     handleClearClick();
   });
 
-  // --- Modal helper ---
+  // --- Modal helper with focus trapping ---
+  var FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
   function createModal() {
     var backdrop = document.createElement('div');
     backdrop.className = 'relay-annotate-modal-backdrop';
@@ -546,10 +521,56 @@ export function buildOverlayScript(port: number): string {
     backdrop.style.display = 'none';
     var card = document.createElement('div');
     card.className = 'relay-annotate-modal';
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
     card.addEventListener('click', function(e) { e.stopPropagation(); });
     backdrop.appendChild(card);
     rootEl.appendChild(backdrop);
-    return { backdrop: backdrop, card: card };
+
+    var savedFocus = null;
+    var trapListener = null;
+
+    function show() {
+      savedFocus = document.activeElement;
+      backdrop.style.display = 'flex';
+      // Focus first focusable element
+      var focusable = card.querySelectorAll(FOCUSABLE_SELECTOR);
+      if (focusable.length > 0) focusable[0].focus();
+      // Add Tab trap
+      trapListener = function(e) {
+        if (e.key !== 'Tab') return;
+        var els = card.querySelectorAll(FOCUSABLE_SELECTOR);
+        if (els.length === 0) return;
+        var first = els[0];
+        var last = els[els.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      };
+      card.addEventListener('keydown', trapListener);
+    }
+
+    function hide() {
+      backdrop.style.display = 'none';
+      if (trapListener) {
+        card.removeEventListener('keydown', trapListener);
+        trapListener = null;
+      }
+      if (savedFocus && typeof savedFocus.focus === 'function') {
+        savedFocus.focus();
+      }
+      savedFocus = null;
+    }
+
+    return { backdrop: backdrop, card: card, show: show, hide: hide };
   }
 
   // --- Instructional modal ---
@@ -587,12 +608,12 @@ export function buildOverlayScript(port: number): string {
   modalCard.appendChild(modalOkBtn);
 
   function showModal() {
-    modalBackdrop.style.display = 'flex';
+    instructModal.show();
   }
   function dismissModal() {
     sendingEnabled = true;
-    modalBackdrop.style.display = 'none';
-    renderBadges();
+    instructModal.hide();
+    updateToolbarState();
   }
   modalOkBtn.addEventListener('click', dismissModal);
   modalBackdrop.addEventListener('click', dismissModal);
@@ -643,10 +664,10 @@ export function buildOverlayScript(port: number): string {
   shortcutsCard.appendChild(shortcutsCloseBtn);
 
   function showShortcuts() {
-    shortcutsBackdrop.style.display = 'flex';
+    shortcutsModal.show();
   }
   function dismissShortcuts() {
-    shortcutsBackdrop.style.display = 'none';
+    shortcutsModal.hide();
   }
   shortcutsCloseBtn.addEventListener('click', dismissShortcuts);
   shortcutsBackdrop.addEventListener('click', dismissShortcuts);
@@ -657,28 +678,45 @@ export function buildOverlayScript(port: number): string {
   toggleBtn.style.top = (window.innerHeight - BTN_SIZE - BTN_MARGIN) + 'px';
   toggleBtn.style.left = (window.innerWidth - BTN_SIZE - BTN_MARGIN) + 'px';
 
-  // --- Position toolbar buttons relative to toggle button ---
-  function positionToolbarBtn(btn) {
-    var toggleTop = parseFloat(toggleBtn.style.top) || 0;
-    var btnWidth = btn.offsetWidth || 100;
-    // Anchor to the left of clearBtn if visible, otherwise left of toggle
-    var anchorLeft = (clearBtn.style.display !== 'none')
-      ? parseFloat(clearBtn.style.left) || 0
-      : parseFloat(toggleBtn.style.left) || 0;
-    var left = anchorLeft - btnWidth - 8;
-    if (left < BTN_MARGIN) left = (parseFloat(toggleBtn.style.left) || 0) + BTN_SIZE + 8;
-    btn.style.left = left + 'px';
-    btn.style.top = toggleTop + 'px';
-  }
-  function positionSendBtn() { positionToolbarBtn(sendBtn); }
-  function positionEnableSendBtn() { positionToolbarBtn(enableSendBtn); }
-  function positionClearBtn() {
+  // --- Position toolbar buttons as a group relative to toggle ---
+  function layoutToolbar() {
     var toggleLeft = parseFloat(toggleBtn.style.left) || 0;
     var toggleTop = parseFloat(toggleBtn.style.top) || 0;
-    var left = toggleLeft - BTN_SIZE - 8;
-    if (left < BTN_MARGIN) left = toggleLeft + BTN_SIZE + 8;
-    clearBtn.style.left = left + 'px';
-    clearBtn.style.top = toggleTop + 'px';
+
+    // Collect visible buttons in order: closest to toggle first
+    var btns = [];
+    if (clearBtn.style.display !== 'none') btns.push(clearBtn);
+    if (sendBtn.style.display !== 'none') btns.push(sendBtn);
+    if (enableSendBtn.style.display !== 'none') btns.push(enableSendBtn);
+    if (btns.length === 0) return;
+
+    // Measure widths
+    var totalWidth = 0;
+    var widths = [];
+    for (var i = 0; i < btns.length; i++) {
+      var w = btns[i].offsetWidth || BTN_SIZE;
+      widths.push(w);
+      totalWidth += w;
+    }
+    totalWidth += BTN_MARGIN * btns.length; // gaps
+
+    // All buttons on same side — left of toggle if space, otherwise right
+    if (toggleLeft - totalWidth >= BTN_MARGIN) {
+      var cursor = toggleLeft;
+      for (var i = 0; i < btns.length; i++) {
+        cursor -= widths[i] + BTN_MARGIN;
+        btns[i].style.left = cursor + 'px';
+        btns[i].style.top = toggleTop + 'px';
+      }
+    } else {
+      var cursor = toggleLeft + BTN_SIZE;
+      for (var i = 0; i < btns.length; i++) {
+        cursor += BTN_MARGIN;
+        btns[i].style.left = cursor + 'px';
+        btns[i].style.top = toggleTop + 'px';
+        cursor += widths[i];
+      }
+    }
   }
 
   // --- Toggle annotation mode ---
@@ -732,9 +770,7 @@ export function buildOverlayScript(port: number): string {
       newTop = Math.max(BTN_MARGIN, Math.min(newTop, window.innerHeight - BTN_SIZE - BTN_MARGIN));
       toggleBtn.style.left = newLeft + 'px';
       toggleBtn.style.top = newTop + 'px';
-      positionSendBtn();
-      positionEnableSendBtn();
-      positionClearBtn();
+      layoutToolbar();
     }
   });
 
@@ -756,9 +792,7 @@ export function buildOverlayScript(port: number): string {
     var top = parseFloat(toggleBtn.style.top) || 0;
     toggleBtn.style.left = Math.max(BTN_MARGIN, Math.min(left, window.innerWidth - BTN_SIZE - BTN_MARGIN)) + 'px';
     toggleBtn.style.top = Math.max(BTN_MARGIN, Math.min(top, window.innerHeight - BTN_SIZE - BTN_MARGIN)) + 'px';
-    positionSendBtn();
-    positionEnableSendBtn();
-    positionClearBtn();
+    layoutToolbar();
   });
 
   // --- Highlight on hover (used when not dragging) ---
@@ -809,6 +843,14 @@ export function buildOverlayScript(port: number): string {
     popover.style.top = top + 'px';
   }
 
+  // --- Auto-growing textarea helper ---
+  function autoGrowTextarea(textarea) {
+    textarea.addEventListener('input', function() {
+      textarea.style.height = 'auto';
+      textarea.style.height = textarea.scrollHeight + 'px';
+    });
+  }
+
   // --- Create popover (new annotation) ---
   function showCreatePopover(targetEl) {
     closePopover();
@@ -824,6 +866,7 @@ export function buildOverlayScript(port: number): string {
     var textarea = document.createElement('textarea');
     textarea.placeholder = 'Add feedback...';
     popover.appendChild(textarea);
+    autoGrowTextarea(textarea);
 
     var actions = document.createElement('div');
     actions.className = 'relay-annotate-popover-actions';
@@ -889,6 +932,8 @@ export function buildOverlayScript(port: number): string {
     var textarea = document.createElement('textarea');
     textarea.value = annotation.text;
     popover.appendChild(textarea);
+    autoGrowTextarea(textarea);
+    textarea.dispatchEvent(new Event('input'));
 
     var actions = document.createElement('div');
     actions.className = 'relay-annotate-popover-actions';
@@ -1019,6 +1064,7 @@ export function buildOverlayScript(port: number): string {
     var textarea = document.createElement('textarea');
     textarea.placeholder = 'Add feedback...';
     popover.appendChild(textarea);
+    autoGrowTextarea(textarea);
 
     var actions = document.createElement('div');
     actions.className = 'relay-annotate-popover-actions';
@@ -1180,51 +1226,79 @@ export function buildOverlayScript(port: number): string {
   document.addEventListener('touchstart', blockEventInAnnotationMode, true);
   document.addEventListener('click', blockEventInAnnotationMode, true);
 
-  // --- Pin rendering ---
-  function clearBadges() {
-    badgeElements.forEach(function(b) { b.remove(); });
-    badgeElements = [];
-  }
-
-  function renderBadges() {
-    clearBadges();
-    nextBadgeNumber = 1;
-
-    // Track positions for collision avoidance
-    var positions = [];
-
-    // Only show annotations for the current page
+  // --- Pin rendering (diff-based) ---
+  function syncPins() {
+    // Build a set of current annotation IDs for the current page
     var pageAnnotations = annotations.filter(function(ann) {
       return ann.url === currentPath;
     });
+    var currentIds = {};
+    for (var i = 0; i < pageAnnotations.length; i++) {
+      currentIds[pageAnnotations[i].id] = pageAnnotations[i];
+    }
 
-    pageAnnotations.forEach(function(ann) {
+    // Remove pins for deleted annotations
+    var kept = [];
+    for (var i = 0; i < badgeElements.length; i++) {
+      var pin = badgeElements[i];
+      var ann = pin.__relayAnn;
+      if (ann && currentIds[ann.id]) {
+        pin.__relayAnn = currentIds[ann.id]; // update to latest data
+        kept.push(pin);
+        delete currentIds[ann.id]; // mark as already present
+      } else {
+        pin.remove();
+      }
+    }
+
+    // Create pins for new annotations
+    var newIds = Object.keys(currentIds);
+    for (var i = 0; i < newIds.length; i++) {
+      var ann = currentIds[newIds[i]];
       var pin = document.createElement('div');
       pin.className = 'relay-annotate-pin';
       pin.setAttribute('data-relay-ignore', 'true');
       pin.setAttribute('data-relay-annotation-id', ann.id);
-      pin.textContent = String(nextBadgeNumber);
       pin.__relayAnn = ann;
-      nextBadgeNumber++;
-
-      pin.addEventListener('click', function(e) {
-        e.stopPropagation();
-        showEditPopover(ann, pin);
-      });
-
+      pin.addEventListener('click', function(a, p) {
+        return function(e) {
+          e.stopPropagation();
+          showEditPopover(a, p);
+        };
+      }(ann, pin));
       rootEl.appendChild(pin);
-      badgeElements.push(pin);
+      kept.push(pin);
+    }
+
+    badgeElements = kept;
+
+    // Update badge numbers in DOM order
+    // Sort by annotation creation order (match pageAnnotations order)
+    var idOrder = {};
+    for (var i = 0; i < pageAnnotations.length; i++) {
+      idOrder[pageAnnotations[i].id] = i;
+    }
+    badgeElements.sort(function(a, b) {
+      var aIdx = a.__relayAnn ? (idOrder[a.__relayAnn.id] || 0) : 0;
+      var bIdx = b.__relayAnn ? (idOrder[b.__relayAnn.id] || 0) : 0;
+      return aIdx - bIdx;
     });
+    for (var i = 0; i < badgeElements.length; i++) {
+      badgeElements[i].textContent = String(i + 1);
+    }
+    nextBadgeNumber = badgeElements.length + 1;
 
     repositionBadges();
+    updateToolbarState();
+  }
 
-    // Update button visibility
+  // --- Update toolbar button visibility and state ---
+  function updateToolbarState() {
     var openCount = annotations.filter(function(a) { return a.status === 'open'; }).length;
 
     // Clear button: show next to toggle when annotations exist and idle
     if (openCount > 0 && processingState === 'idle') {
       clearBtn.style.display = 'flex';
-      positionClearBtn();
     } else {
       clearBtn.style.display = 'none';
     }
@@ -1240,7 +1314,6 @@ export function buildOverlayScript(port: number): string {
       sendLabel.textContent = 'Working...';
       sendCountBadge.style.display = 'none';
       sendBtn.style.pointerEvents = 'none';
-      positionSendBtn();
     } else if (processingState === 'done') {
       enableSendBtn.style.display = 'none';
       sendBtn.style.display = 'flex';
@@ -1251,7 +1324,6 @@ export function buildOverlayScript(port: number): string {
       sendLabel.textContent = 'Done!';
       sendCountBadge.style.display = 'none';
       sendBtn.style.pointerEvents = 'none';
-      positionSendBtn();
     } else if (openCount > 0) {
       sendBtn.classList.remove('processing');
       sendBtn.classList.remove('done');
@@ -1267,11 +1339,9 @@ export function buildOverlayScript(port: number): string {
           sendLabel.textContent = 'Send';
           sendBtn.style.pointerEvents = '';
         }
-        positionSendBtn();
       } else {
         sendBtn.style.display = 'none';
         enableSendBtn.style.display = 'flex';
-        positionEnableSendBtn();
       }
     } else {
       sendBtn.classList.remove('processing');
@@ -1280,6 +1350,8 @@ export function buildOverlayScript(port: number): string {
       sendBtn.style.display = 'none';
       enableSendBtn.style.display = 'none';
     }
+
+    layoutToolbar();
   }
 
   // --- Reposition pins without recreating DOM (used on scroll) ---
@@ -1364,7 +1436,7 @@ export function buildOverlayScript(port: number): string {
     currentPath = location.pathname;
     fetchAnnotations().then(function(data) {
       annotations = data;
-      renderBadges();
+      syncPins();
     }).catch(function(err) {
       console.error('Failed to fetch annotations:', err);
     });
@@ -1382,17 +1454,17 @@ export function buildOverlayScript(port: number): string {
       // Auto-reset after 2 min (handles AI crash/disconnect)
       processingTimer = setTimeout(function() {
         processingState = 'idle';
-        renderBadges();
+        updateToolbarState();
       }, PROCESSING_TIMEOUT_MS);
     } else if (state === 'done') {
       // Show "Done!" then reset
       processingTimer = setTimeout(function() {
         processingState = 'idle';
-        renderBadges();
+        updateToolbarState();
       }, SENT_DURATION_MS);
     }
 
-    renderBadges();
+    updateToolbarState();
   };
 
   // --- URL change detection (SPA navigation) ---
@@ -1401,7 +1473,7 @@ export function buildOverlayScript(port: number): string {
     if (newPath !== currentPath) {
       currentPath = newPath;
       closePopover();
-      renderBadges();
+      syncPins();
     }
   }
 
@@ -1419,12 +1491,13 @@ export function buildOverlayScript(port: number): string {
   window.addEventListener('popstate', onUrlChange);
 
   // --- DOM mutation observer (modals, dialogs, drawers) ---
-  var renderDebounceTimer = null;
-  function debouncedRenderBadges() {
-    if (renderDebounceTimer) return;
-    renderDebounceTimer = setTimeout(function() {
-      renderDebounceTimer = null;
-      renderBadges();
+  var mutationDebounceTimer = null;
+  function debouncedRepositionBadges() {
+    if (mutationDebounceTimer) return;
+    mutationDebounceTimer = setTimeout(function() {
+      mutationDebounceTimer = null;
+      repositionBadges();
+      updateToolbarState();
     }, DEBOUNCE_MS);
   }
 
@@ -1435,7 +1508,7 @@ export function buildOverlayScript(port: number): string {
     for (var i = 0; i < mutations.length; i++) {
       var target = mutations[i].target;
       if (target.nodeType === 1 && target.hasAttribute && target.hasAttribute('data-relay-ignore')) continue;
-      debouncedRenderBadges();
+      debouncedRepositionBadges();
       return;
     }
   });
