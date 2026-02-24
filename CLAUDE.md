@@ -115,6 +115,28 @@ Console and network events should be buffered in memory with sensible limits:
 - Log connection status to stderr (MCP uses stdout for protocol, stderr for diagnostics)
 - Support configurable port via environment variable: `CHROME_DEBUG_PORT=9222`
 
+## Troubleshooting Chrome Connections
+
+Common issues when `check_connection` or `connect_to_page` returns `ECONNREFUSED`:
+
+- **Chrome already running without `--remote-debugging-port`**: If Chrome (or Chrome Canary) is already open, launching a new instance with the flag just opens a new window in the existing process — the debugging port flag is silently ignored. You must fully quit Chrome first, then relaunch with the flag.
+
+- **Profile directory lock**: Even after quitting Chrome, the user profile directory lock file can persist briefly, causing the new instance to skip binding the debugging port. Workaround: use `--user-data-dir=/tmp/chrome-debug` to launch with a temporary profile, which avoids the lock entirely.
+
+- **Chrome Canary / non-default Chrome**: If the user runs Chrome Canary or a non-standard Chrome, auto-launch won't find it since `CHROME_PATH` defaults to stable Chrome. Set `CHROME_PATH` to the correct binary (e.g. `/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary`).
+
+- **Verification**: Before calling `connect_to_page`, verify Chrome is actually listening with `curl -s http://localhost:9222/json/version`. If this fails, the debugging port didn't bind — see above.
+
+- **Reliable manual launch sequence**:
+  ```bash
+  # 1. Kill existing Chrome
+  pkill -9 -f "Google Chrome"
+  # 2. Wait for cleanup
+  sleep 2
+  # 3. Launch with temp profile to avoid lock issues
+  /path/to/chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug
+  ```
+
 ## Error Handling
 
 - If Chrome isn't connected, tools should return a clear error message, not throw
