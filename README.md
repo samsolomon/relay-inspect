@@ -1,6 +1,8 @@
+<img src="logo.svg" width="128" height="128" alt="Relay Inspect"> 
 
-<img src="logo.svg" width="128" height="128" alt="Relay Inspect">
+[npm version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fregistry.npmjs.org%2Frelay-inspect%2Flatest&query=%24.version&label=npm)
 
+```
 Stop copying and pasting console logs, server errors and screenshots into your CLI. Relay Inspect gives your AI coding agent direct access to your browser—so it can see what you see, verify its own changes, and debug without asking you to copy and paste.
 
 Relay Inspect is a lightweight tool for designers and engineers who want to spend more time building and less time debugging.
