@@ -1,16 +1,42 @@
 {
   "name": "relay-inspect",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "MCP server bridging AI coding agents and Chrome DevTools Protocol",
   "type": "module",
   "main": "dist/index.js",
   "bin": "dist/index.js",
+  "files": ["dist"],
+  "license": "MIT",
+  "author": {
+    "name": "Sam Solomon",
+    "url": "https://github.com/samsolomon"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samsolomon/relay-inspect"
+  },
+  "homepage": "https://github.com/samsolomon/relay-inspect",
+  "bugs": {
+    "url": "https://github.com/samsolomon/relay-inspect/issues"
+  },
+  "keywords": [
+    "mcp",
+    "chrome-devtools",
+    "cdp",
+    "browser-automation",
+    "debugging",
+    "ai-agents"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "gallery": "tsx examples/gallery.ts"
+    "gallery": "tsx examples/gallery.ts",
+    "prepare": "tsup"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",

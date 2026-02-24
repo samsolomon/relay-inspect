@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.svg" width="128" height="128" alt="Relay Inspect">
+</p>
+
 # Relay Inspect
 
 Stop copying and pasting console logs, server errors and screenshots into your CLI. Relay Inspect gives your AI coding agent direct access to your browser—so it can see what you see, verify its own changes, and debug without asking you to copy and paste.
@@ -58,19 +62,12 @@ Your agent gets access to the following tools automatically via MCP:
 
 ### Prerequisites
 
-- Node.js
+- Node.js 20+
 - Chrome (or any Chromium-based browser)
 
-### Install
-
-```bash
-git clone https://github.com/samsolomon/relay-inspect.git
-cd relay-inspect
-npm install
-npm run build
-```
-
 ### Add to your MCP client
+
+No install required — `npx` downloads and runs the package on first use.
 
 **Claude Code** — add to `.mcp.json` or `.claude/settings.json`:
 
@@ -78,9 +75,8 @@ npm run build
 {
   "mcpServers": {
     "relay-inspect": {
-      "command": "node",
-      "args": ["dist/index.js"],
-      "cwd": "/absolute/path/to/relay-inspect"
+      "command": "npx",
+      "args": ["-y", "relay-inspect"]
     }
   }
 }
@@ -89,7 +85,7 @@ npm run build
 **Codex CLI:**
 
 ```bash
-codex mcp add relay-inspect -- node /absolute/path/to/relay-inspect/dist/index.js
+codex mcp add relay-inspect -- npx -y relay-inspect
 ```
 
 **opencode** — add to `opencode.json`:
@@ -99,10 +95,8 @@ codex mcp add relay-inspect -- node /absolute/path/to/relay-inspect/dist/index.j
   "mcp": {
     "relay-inspect": {
       "type": "local",
-      "command": "node",
-      "args": ["dist/index.js"],
-      "env": {},
-      "cwd": "/absolute/path/to/relay-inspect"
+      "command": "npx",
+      "args": ["-y", "relay-inspect"]
     }
   }
 }
@@ -127,6 +121,12 @@ Chrome is auto-launched on first tool call if it isn't already running. To disab
 If Chrome is already running with `--remote-debugging-port`, Relay Inspect will connect to it directly without launching a new instance.
 
 ## Development
+
+```bash
+git clone https://github.com/samsolomon/relay-inspect.git
+cd relay-inspect
+npm install
+```
 
 ```bash
 npm run dev    # Run with tsx (auto-recompile)
