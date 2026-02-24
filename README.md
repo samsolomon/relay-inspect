@@ -1,8 +1,6 @@
 
 <img src="logo.svg" width="128" height="128" alt="Relay Inspect">
 
-# Relay Inspect
-
 Stop copying and pasting console logs, server errors and screenshots into your CLI. Relay Inspect gives your AI coding agent direct access to your browser—so it can see what you see, verify its own changes, and debug without asking you to copy and paste.
 
 Relay Inspect is a lightweight tool for designers and engineers who want to spend more time building and less time debugging.
