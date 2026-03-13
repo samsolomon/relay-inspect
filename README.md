@@ -18,13 +18,13 @@ Relay Inspect is a bridge between the Chrome DevTools Protocol, your dev server 
 
 ## Why Relay Inspect over Chrome DevTools MCP?
 
-Google's [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) is a browser automation tool — it clicks buttons, fills forms, runs Lighthouse audits, and scripts interactions through Puppeteer. It's great when your agent needs to *control* the browser.
+Google's [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) is a full browser automation tool—it clicks buttons, fills forms, runs Lighthouse audits, and scripts interactions. Relay Inspect gives agents continuous visibility while they work, so mistakes get caught in the moment, not at the end.
 
-Relay Inspect solves a different problem: giving your agent eyes during development so it can verify its own work.
+* **Gives agents eyes.** Real-time access to console output, network requests, and DOM state — so your agent sees what's happening as it happens, not after it's already moved on.
+* **Tight feedback loop.** The edit → reload → verify cycle happens in a single turn. Your agent makes a change, waits for the dev server to reload, and immediately confirms it worked—without additional back-and-forth.
+* **Focused tools, fewer wrong turns.** A handful of purpose-built tools means your agent reaches for the right one rather than thrashing through a broad API surface. Less noise, more signal.
+* **Zero overhead, zero telemetry.** Connects lazily on the first tool call—no Puppeteer, no phoning home. Nothing runs until your agent needs it.
 
-- **Building, not automating.** Relay Inspect is purpose-built for the edit → hot-reload → verify loop. Your agent observes console output, network failures, and DOM state — it doesn't need to click through your UI.
-- **Dev server management.** Relay Inspect can start your dev server, read its stdout/stderr, and connect to the page automatically. No other browser MCP manages child processes — your agent handles the full cycle without you touching a terminal.
-- **Lighter footprint.** No Puppeteer, no telemetry, no background timers. It connects lazily on first tool call and stays out of the way.
 
 ## Tools
 
