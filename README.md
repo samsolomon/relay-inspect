@@ -16,6 +16,15 @@ Relay Inspect is a bridge between the Chrome DevTools Protocol, your dev server 
 
 > **Looking for annotations?** The browser annotation overlay has moved to its own package: [Annoku](https://github.com/samsolomon/annoku).
 
+## Why Relay Inspect over Chrome DevTools MCP?
+
+Google's [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) is a browser automation tool — it clicks buttons, fills forms, runs Lighthouse audits, and scripts interactions through Puppeteer. It's great when your agent needs to *control* the browser.
+
+Relay Inspect solves a different problem: giving your agent eyes during development so it can verify its own work.
+
+- **Building, not automating.** Relay Inspect is purpose-built for the edit → hot-reload → verify loop. Your agent observes console output, network failures, and DOM state — it doesn't need to click through your UI.
+- **Dev server management.** Relay Inspect can start your dev server, read its stdout/stderr, and connect to the page automatically. No other browser MCP manages child processes — your agent handles the full cycle without you touching a terminal.
+- **Lighter footprint.** No Puppeteer, no telemetry, no background timers. It connects lazily on first tool call and stays out of the way.
 
 ## Tools
 
